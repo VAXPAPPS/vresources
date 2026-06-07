@@ -1,5 +1,6 @@
 #include "process_view.h"
 #include "ui.h"
+#include "process_actions.h"
 #include <string.h>
 
 enum {
@@ -18,6 +19,7 @@ typedef struct {
     GtkWidget *search_entry;
     GtkTreeModel *filter_model;
     ProcessList list;
+    GtkWindow *parent_window;
 } ProcessViewState;
 
 /* Case-insensitive search filter function */
@@ -94,12 +96,161 @@ static void on_search_changed(GtkSearchEntry *entry, gpointer user_data) {
     gtk_tree_model_filter_refilter(filter);
 }
 
+/* Callback structures and helpers for the context menu */
+typedef struct {
+    int pid;
+    char name[256];
+    GtkWidget *popover;
+    GtkWindow *parent_win;
+} ContextMenuCallbackData;
+
+static void on_popover_destroy(GtkWidget *popover, gpointer user_data) {
+    (void)popover;
+    ContextMenuCallbackData *data = (ContextMenuCallbackData *)user_data;
+    g_free(data);
+}
+
+static void on_menu_action_clicked(GtkWidget *btn, gpointer user_data) {
+    ContextMenuCallbackData *data = (ContextMenuCallbackData *)user_data;
+    
+    /* Safely fetch and copy action name before popping down popover (which destroys button data) */
+    const char *action_val = g_object_get_data(G_OBJECT(btn), "action");
+    char action[64] = "";
+    if (action_val) {
+        strncpy(action, action_val, sizeof(action) - 1);
+    }
+    
+    /* Pop down the popover, which triggers closed -> unparent -> destroy callbacks */
+    gtk_popover_popdown(GTK_POPOVER(data->popover));
+    
+    if (strcmp(action, "properties") == 0) {
+        process_action_properties(data->parent_win, data->pid, data->name);
+    } else if (strcmp(action, "maps") == 0) {
+        process_action_memory_map(data->parent_win, data->pid, data->name);
+    } else if (strcmp(action, "fd") == 0) {
+        process_action_open_files(data->parent_win, data->pid, data->name);
+    } else if (strcmp(action, "priority") == 0) {
+        process_action_change_priority(data->parent_win, data->pid, data->name);
+    } else if (strcmp(action, "affinity") == 0) {
+        process_action_set_affinity(data->parent_win, data->pid, data->name);
+    } else if (strcmp(action, "stop") == 0) {
+        process_action_send_signal(data->parent_win, data->pid, data->name, 19); /* SIGSTOP is 19 on Linux */
+    } else if (strcmp(action, "continue") == 0) {
+        process_action_send_signal(data->parent_win, data->pid, data->name, 18); /* SIGCONT is 18 on Linux */
+    } else if (strcmp(action, "terminate") == 0) {
+        process_action_send_signal(data->parent_win, data->pid, data->name, 15); /* SIGTERM is 15 on Linux */
+    } else if (strcmp(action, "kill") == 0) {
+        process_action_send_signal(data->parent_win, data->pid, data->name, 9);  /* SIGKILL is 9 on Linux */
+    }
+}
+
+static void show_process_context_menu(ProcessViewState *state, int pid, const char *name, double x, double y) {
+    GtkWidget *popover = gtk_popover_new();
+    gtk_widget_set_parent(popover, state->tree_view);
+    
+    /* Destroy and free callback data when the popover is dismissed */
+    g_signal_connect(popover, "closed", G_CALLBACK(gtk_widget_unparent), NULL);
+    
+    ContextMenuCallbackData *data = g_new0(ContextMenuCallbackData, 1);
+    data->pid = pid;
+    strncpy(data->name, name, sizeof(data->name) - 1);
+    data->popover = popover;
+    data->parent_win = state->parent_window;
+    g_signal_connect(popover, "destroy", G_CALLBACK(on_popover_destroy), data);
+    
+    GdkRectangle rect;
+    rect.x = (int)x;
+    rect.y = (int)y;
+    rect.width = 1;
+    rect.height = 1;
+    gtk_popover_set_pointing_to(GTK_POPOVER(popover), &rect);
+    
+    GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+    gtk_widget_set_margin_start(vbox, 6);
+    gtk_widget_set_margin_end(vbox, 6);
+    gtk_widget_set_margin_top(vbox, 6);
+    gtk_widget_set_margin_bottom(vbox, 6);
+    gtk_popover_set_child(GTK_POPOVER(popover), vbox);
+    
+    char header[256];
+    snprintf(header, sizeof(header), "%s (PID %d)", name, pid);
+    GtkWidget *lbl_header = gtk_label_new(header);
+    gtk_widget_add_css_class(lbl_header, "card-title");
+    gtk_widget_set_margin_bottom(lbl_header, 4);
+    gtk_box_append(GTK_BOX(vbox), lbl_header);
+    
+    GtkWidget *sep = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
+    gtk_box_append(GTK_BOX(vbox), sep);
+    
+    #define ADD_MENU_BUTTON(lbl, act, theme) { \
+        GtkWidget *btn = gtk_button_new_with_label(lbl); \
+        gtk_widget_add_css_class(btn, "nav-btn"); \
+        if (theme) gtk_widget_add_css_class(btn, theme); \
+        g_object_set_data(G_OBJECT(btn), "action", (gpointer)act); \
+        g_signal_connect(btn, "clicked", G_CALLBACK(on_menu_action_clicked), data); \
+        gtk_box_append(GTK_BOX(vbox), btn); \
+    }
+    
+    ADD_MENU_BUTTON("Properties", "properties", NULL);
+    ADD_MENU_BUTTON("Memory Map", "maps", NULL);
+    ADD_MENU_BUTTON("Open Files", "fd", NULL);
+    ADD_MENU_BUTTON("Change Priority", "priority", NULL);
+    ADD_MENU_BUTTON("Set Affinity", "affinity", NULL);
+    
+    sep = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
+    gtk_box_append(GTK_BOX(vbox), sep);
+    
+    ADD_MENU_BUTTON("Stop (Pause)", "stop", "battery-theme");
+    ADD_MENU_BUTTON("Continue (Resume)", "continue", "cpu-theme");
+    ADD_MENU_BUTTON("Terminate", "terminate", "storage-theme");
+    ADD_MENU_BUTTON("Kill Process (Force)", "kill", "network-theme");
+    
+    #undef ADD_MENU_BUTTON
+    
+    gtk_popover_popup(GTK_POPOVER(popover));
+}
+
+static void on_treeview_right_click(GtkGestureClick *gesture, int n_press, double x, double y, gpointer user_data) {
+    (void)n_press;
+    ProcessViewState *state = (ProcessViewState *)user_data;
+    GtkTreeView *treeview = GTK_TREE_VIEW(state->tree_view);
+    
+    GtkTreePath *path = NULL;
+    GtkTreeViewColumn *column = NULL;
+    int cell_x, cell_y;
+    
+    if (gtk_tree_view_get_path_at_pos(treeview, (int)x, (int)y, &path, &column, &cell_x, &cell_y)) {
+        GtkTreeSelection *selection = gtk_tree_view_get_selection(treeview);
+        gtk_tree_selection_select_path(selection, path);
+        
+        GtkTreeModel *model;
+        GtkTreeIter iter;
+        if (gtk_tree_selection_get_selected(selection, &model, &iter)) {
+            int pid;
+            char *name = NULL;
+            gtk_tree_model_get(model, &iter, COL_PID, &pid, COL_NAME, &name, -1);
+            
+            char name_buf[256];
+            if (name) {
+                strncpy(name_buf, name, sizeof(name_buf) - 1);
+                name_buf[sizeof(name_buf) - 1] = '\0';
+                g_free(name);
+            } else {
+                strcpy(name_buf, "Unknown");
+            }
+            
+            show_process_context_menu(state, pid, name_buf, x, y);
+        }
+        gtk_tree_path_free(path);
+    }
+}
+
 GtkWidget *create_process_view(GtkWidget *parent, gpointer ui_context) {
-    (void)parent;
     UIContext *ctx = (UIContext *)ui_context;
 
     /* Allocate the private state structure */
     ProcessViewState *state = g_new0(ProcessViewState, 1);
+    state->parent_window = GTK_WINDOW(parent);
     ctx->process_view_context = state;
 
     /* Initialize process reader delta cache */
@@ -225,6 +376,12 @@ GtkWidget *create_process_view(GtkWidget *parent, gpointer ui_context) {
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), state->tree_view);
     gtk_box_append(GTK_BOX(vbox), scroll);
+
+    /* Right click gesture setup for context menu */
+    GtkGesture *gesture = gtk_gesture_click_new();
+    gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(gesture), GDK_BUTTON_SECONDARY);
+    g_signal_connect(gesture, "pressed", G_CALLBACK(on_treeview_right_click), state);
+    gtk_widget_add_controller(state->tree_view, GTK_EVENT_CONTROLLER(gesture));
 
     return vbox;
 }
