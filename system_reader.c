@@ -345,8 +345,8 @@ static void read_cpu_stats(CpuStats *cpu) {
 
     /* Read temperature */
     cpu->temperature_c = 0.0;
-    /* Look in sysfs for thermal zones */
-    for (int tz = 0; tz < 10; tz++) {
+    /* Look in sysfs for thermal zones (covering more indices) */
+    for (int tz = 0; tz < 32; tz++) {
         char type_path[128];
         char temp_path[128];
         snprintf(type_path, sizeof(type_path), "/sys/class/thermal/thermal_zone%d/type", tz);
@@ -354,9 +354,9 @@ static void read_cpu_stats(CpuStats *cpu) {
         
         FILE *tf = fopen(type_path, "r");
         if (!tf) continue;
-        char tz_type[128];
+        char tz_type[128] = "";
         if (fgets(tz_type, sizeof(tz_type), tf)) {
-            if (strstr(tz_type, "x86_pkg_temp") || strstr(tz_type, "coretemp") || tz == 0) {
+            if (strstr(tz_type, "x86_pkg_temp") || strstr(tz_type, "coretemp") || strstr(tz_type, "cpu") || tz == 0) {
                 FILE *temp_f = fopen(temp_path, "r");
                 if (temp_f) {
                     long raw_temp = 0;
@@ -371,18 +371,50 @@ static void read_cpu_stats(CpuStats *cpu) {
         }
         fclose(tf);
     }
+    
+    /* Fallback: scan all hwmon devices for CPU coretemp/k10temp sensors */
     if (cpu->temperature_c <= 0.0) {
-        /* Look in hwmon */
-        f = fopen("/sys/class/hwmon/hwmon0/temp1_input", "r");
-        if (f) {
-            long temp_raw = 0;
-            if (fscanf(f, "%ld", &temp_raw) == 1) {
-                cpu->temperature_c = temp_raw / 1000.0;
+        DIR *dir = opendir("/sys/class/hwmon");
+        if (dir) {
+            struct dirent *entry;
+            while ((entry = readdir(dir)) != NULL) {
+                if (strncmp(entry->d_name, "hwmon", 5) == 0) {
+                    char name_path[512];
+                    snprintf(name_path, sizeof(name_path), "/sys/class/hwmon/%s/name", entry->d_name);
+                    FILE *nf = fopen(name_path, "r");
+                    if (nf) {
+                        char sname[128] = "";
+                        if (fgets(sname, sizeof(sname), nf)) {
+                            if (strstr(sname, "coretemp") || strstr(sname, "k10temp") || strstr(sname, "cpu_thermal")) {
+                                char temp_path[512];
+                                snprintf(temp_path, sizeof(temp_path), "/sys/class/hwmon/%s/temp1_input", entry->d_name);
+                                FILE *temp_f = fopen(temp_path, "r");
+                                if (!temp_f) {
+                                    snprintf(temp_path, sizeof(temp_path), "/sys/class/hwmon/%s/temp2_input", entry->d_name);
+                                    temp_f = fopen(temp_path, "r");
+                                }
+                                if (temp_f) {
+                                    long raw_temp = 0;
+                                    if (fscanf(temp_f, "%ld", &raw_temp) == 1) {
+                                        cpu->temperature_c = raw_temp / 1000.0;
+                                    }
+                                    fclose(temp_f);
+                                    fclose(nf);
+                                    break;
+                                }
+                            }
+                        }
+                        fclose(nf);
+                    }
+                }
             }
-            fclose(f);
-        } else {
-            cpu->temperature_c = 45.0; /* Hardcoded safe default */
+            closedir(dir);
         }
+    }
+    
+    /* Absolute safe default if all hardware calls fail */
+    if (cpu->temperature_c <= 0.0) {
+        cpu->temperature_c = 45.0;
     }
 }
 
@@ -514,16 +546,27 @@ static void read_gpu_stats(GpuStats *gpu) {
 
             /* Temp */
             g->temperature_c = 40.0;
-            for (int hw = 0; hw < 4; hw++) {
-                char path_temp[256];
-                snprintf(path_temp, sizeof(path_temp), "%s/device/hwmon/hwmon%d/temp1_input", card_path, hw);
-                f = fopen(path_temp, "r");
-                if (f) {
-                    long t_raw = 0;
-                    if (fscanf(f, "%ld", &t_raw) == 1) g->temperature_c = t_raw / 1000.0;
-                    fclose(f);
-                    break;
+            char hwmon_dir[256];
+            snprintf(hwmon_dir, sizeof(hwmon_dir), "%s/device/hwmon", card_path);
+            DIR *hdir = opendir(hwmon_dir);
+            if (hdir) {
+                struct dirent *hentry;
+                while ((hentry = readdir(hdir)) != NULL) {
+                    if (strncmp(hentry->d_name, "hwmon", 5) == 0) {
+                        char path_temp[1024];
+                        snprintf(path_temp, sizeof(path_temp), "%s/%s/temp1_input", hwmon_dir, hentry->d_name);
+                        FILE *tf = fopen(path_temp, "r");
+                        if (tf) {
+                            long t_raw = 0;
+                            if (fscanf(tf, "%ld", &t_raw) == 1) {
+                                g->temperature_c = t_raw / 1000.0;
+                            }
+                            fclose(tf);
+                            break;
+                        }
+                    }
                 }
+                closedir(hdir);
             }
             g->core_clock_mhz = 1000.0;
             gpu_idx++;
