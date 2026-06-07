@@ -74,11 +74,7 @@ static void format_gpu_cell(GtkTreeViewColumn *col, GtkCellRenderer *renderer, G
     double val;
     gtk_tree_model_get(model, iter, COL_GPU, &val, -1);
     char buf[32];
-    if (val > 0.0) {
-        snprintf(buf, sizeof(buf), "%.1f %%", val);
-    } else {
-        strcpy(buf, "--");
-    }
+    snprintf(buf, sizeof(buf), "%.1f %%", val);
     g_object_set(renderer, "text", buf, NULL);
 }
 

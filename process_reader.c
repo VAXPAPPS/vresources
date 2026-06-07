@@ -275,22 +275,6 @@ void process_reader_update(ProcessList *list, bool demo_mode) {
             cpu_percent = 0.0;
         }
 
-        /* 4. GPU mapping */
-        double gpu_percent = 0.0;
-        for (int i = 0; i < nv_proc_count; i++) {
-            if (nv_procs[i].pid == pid) {
-                /* Set simulated GPU load proportional to VRAM usage and CPU activity */
-                gpu_percent = (nv_procs[i].vram_used > 500.0) ? (15.0 + cpu_percent * 0.5) : 1.0;
-                break;
-            }
-        }
-        /* Fallback for graphic processes (Xorg/Wayland compositor) if NVIDIA is absent */
-        if (gpu_percent == 0.0 && nv_proc_count == 0) {
-            if (strcmp(comm, "xorg") == 0 || strcmp(comm, "Xorg") == 0 || strstr(comm, "wayland") || strstr(comm, "winman")) {
-                gpu_percent = 5.0 + cpu_percent * 0.4;
-            }
-        }
-
         /* Populate results */
         ProcessInfo *p = &list->processes[count];
         p->pid = pid;
@@ -324,8 +308,42 @@ void process_reader_update(ProcessList *list, bool demo_mode) {
 
         p->cpu_percent = cpu_percent;
         p->ram_mb = ram_mb;
-        p->gpu_percent = gpu_percent;
         p->cache_mb = cache_mb;
+
+        /* 4. GPU mapping */
+        double gpu_percent = 0.0;
+        for (int i = 0; i < nv_proc_count; i++) {
+            if (nv_procs[i].pid == pid) {
+                /* Set simulated GPU load proportional to VRAM usage and CPU activity */
+                gpu_percent = (nv_procs[i].vram_used > 500.0) ? (15.0 + cpu_percent * 0.5) : 1.0;
+                break;
+            }
+        }
+        /* Fallback for graphic processes (Xorg/Wayland compositor) if NVIDIA is absent */
+        if (gpu_percent == 0.0 && nv_proc_count == 0) {
+            char lower_name[256] = "";
+            int j = 0;
+            for (j = 0; p->name[j] && j < 255; j++) {
+                lower_name[j] = tolower((unsigned char)p->name[j]);
+            }
+            lower_name[j] = '\0';
+
+            if (strstr(lower_name, "xorg") || 
+                strstr(lower_name, "wayland") || 
+                strstr(lower_name, "gnome-shell") || 
+                strstr(lower_name, "mutter") || 
+                strstr(lower_name, "kwin") ||
+                strstr(lower_name, "chrome") || 
+                strstr(lower_name, "firefox") || 
+                strstr(lower_name, "vresources") ||
+                strstr(lower_name, "vbrowser")) {
+                
+                /* Estimate GPU load based on CPU activity */
+                gpu_percent = 0.5 + cpu_percent * 0.3;
+                if (gpu_percent > 100.0) gpu_percent = 100.0;
+            }
+        }
+        p->gpu_percent = gpu_percent;
 
         count++;
     }
