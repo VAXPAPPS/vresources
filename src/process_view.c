@@ -2,6 +2,7 @@
 #include "ui.h"
 #include "process_actions.h"
 #include <string.h>
+#include <signal.h>
 
 enum {
     COL_NAME = 0,
@@ -135,27 +136,40 @@ static void on_menu_action_clicked(GtkWidget *btn, gpointer user_data) {
         strncpy(action, action_val, sizeof(action) - 1);
     }
     
-    /* Pop down the popover, which triggers closed -> unparent -> destroy callbacks */
+    /* Capture all required data into local variables to prevent Use-After-Free when popover is destroyed */
+    int target_pid = data->pid;
+    char target_name[256];
+    strncpy(target_name, data->name, sizeof(target_name) - 1);
+    target_name[sizeof(target_name) - 1] = '\0';
+    
+    GtkWindow *parent_win = data->parent_win;
+    double cpu_percent = data->cpu_percent;
+    double ram_mb = data->ram_mb;
+    double real_mem_mb = data->real_mem_mb;
+    double gpu_percent = data->gpu_percent;
+    double cache_mb = data->cache_mb;
+    
+    /* Pop down the popover, which triggers closed -> unparent -> destroy -> on_popover_destroy (g_free(data)) */
     gtk_popover_popdown(GTK_POPOVER(data->popover));
     
     if (strcmp(action, "properties") == 0) {
-        process_action_properties(data->parent_win, data->pid, data->name, data->cpu_percent, data->ram_mb, data->real_mem_mb, data->gpu_percent, data->cache_mb);
+        process_action_properties(parent_win, target_pid, target_name, cpu_percent, ram_mb, real_mem_mb, gpu_percent, cache_mb);
     } else if (strcmp(action, "maps") == 0) {
-        process_action_memory_map(data->parent_win, data->pid, data->name);
+        process_action_memory_map(parent_win, target_pid, target_name);
     } else if (strcmp(action, "fd") == 0) {
-        process_action_open_files(data->parent_win, data->pid, data->name);
+        process_action_open_files(parent_win, target_pid, target_name);
     } else if (strcmp(action, "priority") == 0) {
-        process_action_change_priority(data->parent_win, data->pid, data->name);
+        process_action_change_priority(parent_win, target_pid, target_name);
     } else if (strcmp(action, "affinity") == 0) {
-        process_action_set_affinity(data->parent_win, data->pid, data->name);
+        process_action_set_affinity(parent_win, target_pid, target_name);
     } else if (strcmp(action, "stop") == 0) {
-        process_action_send_signal(data->parent_win, data->pid, data->name, 19); /* SIGSTOP is 19 on Linux */
+        process_action_send_signal(parent_win, target_pid, target_name, SIGSTOP);
     } else if (strcmp(action, "continue") == 0) {
-        process_action_send_signal(data->parent_win, data->pid, data->name, 18); /* SIGCONT is 18 on Linux */
+        process_action_send_signal(parent_win, target_pid, target_name, SIGCONT);
     } else if (strcmp(action, "terminate") == 0) {
-        process_action_send_signal(data->parent_win, data->pid, data->name, 15); /* SIGTERM is 15 on Linux */
+        process_action_send_signal(parent_win, target_pid, target_name, SIGTERM);
     } else if (strcmp(action, "kill") == 0) {
-        process_action_send_signal(data->parent_win, data->pid, data->name, 9);  /* SIGKILL is 9 on Linux */
+        process_action_send_signal(parent_win, target_pid, target_name, SIGKILL);
     }
 }
 
