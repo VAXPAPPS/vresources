@@ -42,6 +42,12 @@ static void on_window_destroy(GtkWidget *widget, gpointer user_data) {
     chart_history_free(ctx->disk_w_history);
     chart_history_free(ctx->bat_history);
     
+    /* Clean up process telemetry backend and context */
+    process_reader_cleanup();
+    if (ctx->process_view_context) {
+        g_free(ctx->process_view_context);
+    }
+    
     g_free(ctx);
     g_print("VResources: Context cleaned up successfully. Exiting.\n");
 }

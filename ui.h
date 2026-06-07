@@ -108,6 +108,9 @@ typedef struct {
     unsigned int telemetry_timer_id;
     unsigned int animation_timer_id;
     
+    /* Process view context pointer */
+    gpointer process_view_context;
+    
 } UIContext;
 
 GtkWidget *create_main_ui(GtkApplication *app, UIContext *ctx);

@@ -1,4 +1,5 @@
 #include "ui.h"
+#include "process_view.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -331,6 +332,7 @@ GtkWidget *create_main_ui(GtkApplication *app, UIContext *ctx) {
     add_nav_tab("Network", "network");
     add_nav_tab("Storage", "storage");
     add_nav_tab("Battery", "battery");
+    add_nav_tab("App Resources", "processes");
 
     /* Bottom spacing in sidebar */
     GtkWidget *spacer = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
@@ -787,6 +789,10 @@ GtkWidget *create_main_ui(GtkApplication *app, UIContext *ctx) {
 
     gtk_stack_add_named(GTK_STACK(ctx->stack), page_bat, "battery");
 
+    /* --- PAGE 8: PROCESS RESOURCES --- */
+    GtkWidget *page_processes = create_process_view(win, ctx);
+    gtk_stack_add_named(GTK_STACK(ctx->stack), page_processes, "processes");
+
     /* Show window */
     gtk_window_present(GTK_WINDOW(win));
     
@@ -1079,6 +1085,9 @@ void update_ui(UIContext *ctx) {
         gtk_label_set_text(GTK_LABEL(ctx->lbl_bat_temp), "-- °C");
         gtk_label_set_text(GTK_LABEL(ctx->lbl_bat_remaining), "Running on AC Power Source");
     }
+
+    /* Update App Resources telemetry grid */
+    update_process_view(ctx);
 }
 
 void ui_animate_tick(UIContext *ctx) {

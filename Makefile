@@ -3,7 +3,7 @@ CFLAGS = -O2 -Wall -Wextra `pkg-config --cflags gtk4`
 LIBS = `pkg-config --libs gtk4` -lm
 
 TARGET = vresources
-SRCS = main.c system_reader.c charts.c ui.c
+SRCS = main.c system_reader.c charts.c ui.c process_reader.c process_view.c
 OBJS = $(SRCS:.c=.o)
 
 all: $(TARGET)
