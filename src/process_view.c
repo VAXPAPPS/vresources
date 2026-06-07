@@ -177,6 +177,10 @@ static void show_process_context_menu(ProcessViewState *state, int pid, const ch
     GtkWidget *popover = gtk_popover_new();
     gtk_widget_set_parent(popover, state->tree_view);
     
+    /* Remove bubble arrow tail to make it a clean, official rectangular floating context menu */
+    gtk_popover_set_has_arrow(GTK_POPOVER(popover), FALSE);
+    gtk_widget_add_css_class(popover, "context-menu-popover");
+    
     /* Destroy and free callback data when the popover is dismissed */
     g_signal_connect(popover, "closed", G_CALLBACK(gtk_widget_unparent), NULL);
     
@@ -199,27 +203,36 @@ static void show_process_context_menu(ProcessViewState *state, int pid, const ch
     rect.height = 1;
     gtk_popover_set_pointing_to(GTK_POPOVER(popover), &rect);
     
-    GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
-    gtk_widget_set_margin_start(vbox, 6);
-    gtk_widget_set_margin_end(vbox, 6);
-    gtk_widget_set_margin_top(vbox, 6);
-    gtk_widget_set_margin_bottom(vbox, 6);
+    GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 1);
+    gtk_widget_set_margin_start(vbox, 4);
+    gtk_widget_set_margin_end(vbox, 4);
+    gtk_widget_set_margin_top(vbox, 4);
+    gtk_widget_set_margin_bottom(vbox, 4);
     gtk_popover_set_child(GTK_POPOVER(popover), vbox);
     
+    /* Compact header displaying name and PID */
     char header[256];
     snprintf(header, sizeof(header), "%s (PID %d)", name, pid);
     GtkWidget *lbl_header = gtk_label_new(header);
-    gtk_widget_add_css_class(lbl_header, "card-title");
+    gtk_widget_add_css_class(lbl_header, "info-list-label");
+    gtk_widget_set_halign(lbl_header, GTK_ALIGN_START);
+    gtk_widget_set_margin_start(lbl_header, 8);
     gtk_widget_set_margin_bottom(lbl_header, 4);
     gtk_box_append(GTK_BOX(vbox), lbl_header);
     
     GtkWidget *sep = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
+    gtk_widget_set_margin_top(sep, 2);
+    gtk_widget_set_margin_bottom(sep, 4);
     gtk_box_append(GTK_BOX(vbox), sep);
     
     #define ADD_MENU_BUTTON(lbl, act, theme) { \
         GtkWidget *btn = gtk_button_new_with_label(lbl); \
-        gtk_widget_add_css_class(btn, "nav-btn"); \
+        gtk_widget_add_css_class(btn, "context-menu-btn"); \
         if (theme) gtk_widget_add_css_class(btn, theme); \
+        GtkWidget *child = gtk_button_get_child(GTK_BUTTON(btn)); \
+        if (GTK_IS_LABEL(child)) { \
+            gtk_widget_set_halign(child, GTK_ALIGN_START); \
+        } \
         g_object_set_data(G_OBJECT(btn), "action", (gpointer)act); \
         g_signal_connect(btn, "clicked", G_CALLBACK(on_menu_action_clicked), data); \
         gtk_box_append(GTK_BOX(vbox), btn); \
@@ -232,12 +245,14 @@ static void show_process_context_menu(ProcessViewState *state, int pid, const ch
     ADD_MENU_BUTTON("Set Affinity", "affinity", NULL);
     
     sep = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
+    gtk_widget_set_margin_top(sep, 4);
+    gtk_widget_set_margin_bottom(sep, 4);
     gtk_box_append(GTK_BOX(vbox), sep);
     
-    ADD_MENU_BUTTON("Stop (Pause)", "stop", "battery-theme");
-    ADD_MENU_BUTTON("Continue (Resume)", "continue", "cpu-theme");
-    ADD_MENU_BUTTON("Terminate", "terminate", "storage-theme");
-    ADD_MENU_BUTTON("Kill Process (Force)", "kill", "network-theme");
+    ADD_MENU_BUTTON("Stop (Pause)", "stop", "warn-theme");
+    ADD_MENU_BUTTON("Continue (Resume)", "continue", "accent-theme");
+    ADD_MENU_BUTTON("Terminate", "terminate", "warn-theme");
+    ADD_MENU_BUTTON("Kill Process (Force)", "kill", "destruct-theme");
     
     #undef ADD_MENU_BUTTON
     
