@@ -114,6 +114,8 @@ static void generate_simulated_processes(ProcessList *list) {
 
         p->ram_mb = defs[i].base_ram + (defs[i].base_ram * 0.08 * sin(sim_time * 0.05 + i)) + ((rand() % 20) / 10.0);
         p->cache_mb = defs[i].base_cache + (defs[i].base_cache * 0.04 * cos(sim_time * 0.04 + i));
+        p->real_mem_mb = p->ram_mb - p->cache_mb;
+        if (p->real_mem_mb < 0.0) p->real_mem_mb = 0.0;
 
         if (defs[i].base_gpu > 0.0) {
             double gpu = defs[i].base_gpu + (defs[i].base_gpu * 0.5 * sin(sim_time * defs[i].speed_factor)) + (rand() % 5);
@@ -309,6 +311,8 @@ void process_reader_update(ProcessList *list, bool demo_mode) {
         p->cpu_percent = cpu_percent;
         p->ram_mb = ram_mb;
         p->cache_mb = cache_mb;
+        p->real_mem_mb = ram_mb - cache_mb;
+        if (p->real_mem_mb < 0.0) p->real_mem_mb = 0.0;
 
         /* 4. GPU mapping */
         double gpu_percent = 0.0;

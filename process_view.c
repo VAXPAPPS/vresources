@@ -8,6 +8,7 @@ enum {
     COL_PID,
     COL_CPU,
     COL_RAM,
+    COL_REAL_MEM,
     COL_GPU,
     COL_CACHE,
     NUM_COLS
@@ -66,6 +67,15 @@ static void format_ram_cell(GtkTreeViewColumn *col, GtkCellRenderer *renderer, G
     (void)col; (void)data;
     double val;
     gtk_tree_model_get(model, iter, COL_RAM, &val, -1);
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%.1f MB", val);
+    g_object_set(renderer, "text", buf, NULL);
+}
+
+static void format_real_mem_cell(GtkTreeViewColumn *col, GtkCellRenderer *renderer, GtkTreeModel *model, GtkTreeIter *iter, gpointer data) {
+    (void)col; (void)data;
+    double val;
+    gtk_tree_model_get(model, iter, COL_REAL_MEM, &val, -1);
     char buf[32];
     snprintf(buf, sizeof(buf), "%.1f MB", val);
     g_object_set(renderer, "text", buf, NULL);
@@ -281,6 +291,7 @@ GtkWidget *create_process_view(GtkWidget *parent, gpointer ui_context) {
                                       G_TYPE_INT,      /* PID */
                                       G_TYPE_DOUBLE,   /* CPU */
                                       G_TYPE_DOUBLE,   /* RAM */
+                                      G_TYPE_DOUBLE,   /* Real Memory */
                                       G_TYPE_DOUBLE,   /* GPU */
                                       G_TYPE_DOUBLE);  /* Cache */
 
@@ -344,6 +355,16 @@ GtkWidget *create_process_view(GtkWidget *parent, gpointer ui_context) {
     gtk_tree_view_column_set_cell_data_func(column, renderer, format_ram_cell, NULL, NULL);
     gtk_tree_view_column_set_resizable(column, TRUE);
     gtk_tree_view_column_set_sort_column_id(column, COL_RAM);
+    gtk_tree_view_append_column(GTK_TREE_VIEW(state->tree_view), column);
+
+    /* 4b. Real Memory Column */
+    renderer = gtk_cell_renderer_text_new();
+    column = gtk_tree_view_column_new();
+    gtk_tree_view_column_pack_start(column, renderer, TRUE);
+    gtk_tree_view_column_set_title(column, "Real Memory");
+    gtk_tree_view_column_set_cell_data_func(column, renderer, format_real_mem_cell, NULL, NULL);
+    gtk_tree_view_column_set_resizable(column, TRUE);
+    gtk_tree_view_column_set_sort_column_id(column, COL_REAL_MEM);
     gtk_tree_view_append_column(GTK_TREE_VIEW(state->tree_view), column);
 
     /* 5. GPU Column */
@@ -411,6 +432,7 @@ void update_process_view(gpointer ui_context) {
                            COL_PID, p->pid,
                            COL_CPU, p->cpu_percent,
                            COL_RAM, p->ram_mb,
+                           COL_REAL_MEM, p->real_mem_mb,
                            COL_GPU, p->gpu_percent,
                            COL_CACHE, p->cache_mb,
                            -1);

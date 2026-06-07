@@ -10,6 +10,7 @@ typedef struct {
     char name[256];
     double cpu_percent;
     double ram_mb;
+    double real_mem_mb;
     double gpu_percent;
     double cache_mb;
 } ProcessInfo;
