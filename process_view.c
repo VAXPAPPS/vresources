@@ -177,6 +177,7 @@ GtkWidget *create_process_view(GtkWidget *parent, gpointer ui_context) {
     /* 3. CPU Column */
     renderer = gtk_cell_renderer_text_new();
     column = gtk_tree_view_column_new();
+    gtk_tree_view_column_pack_start(column, renderer, TRUE);
     gtk_tree_view_column_set_title(column, "CPU (%)");
     gtk_tree_view_column_set_cell_data_func(column, renderer, format_cpu_cell, NULL, NULL);
     gtk_tree_view_column_set_resizable(column, TRUE);
@@ -186,6 +187,7 @@ GtkWidget *create_process_view(GtkWidget *parent, gpointer ui_context) {
     /* 4. RAM Column */
     renderer = gtk_cell_renderer_text_new();
     column = gtk_tree_view_column_new();
+    gtk_tree_view_column_pack_start(column, renderer, TRUE);
     gtk_tree_view_column_set_title(column, "RAM Usage (MB)");
     gtk_tree_view_column_set_cell_data_func(column, renderer, format_ram_cell, NULL, NULL);
     gtk_tree_view_column_set_resizable(column, TRUE);
@@ -195,6 +197,7 @@ GtkWidget *create_process_view(GtkWidget *parent, gpointer ui_context) {
     /* 5. GPU Column */
     renderer = gtk_cell_renderer_text_new();
     column = gtk_tree_view_column_new();
+    gtk_tree_view_column_pack_start(column, renderer, TRUE);
     gtk_tree_view_column_set_title(column, "GPU (%)");
     gtk_tree_view_column_set_cell_data_func(column, renderer, format_gpu_cell, NULL, NULL);
     gtk_tree_view_column_set_resizable(column, TRUE);
@@ -204,6 +207,7 @@ GtkWidget *create_process_view(GtkWidget *parent, gpointer ui_context) {
     /* 6. Cache Column */
     renderer = gtk_cell_renderer_text_new();
     column = gtk_tree_view_column_new();
+    gtk_tree_view_column_pack_start(column, renderer, TRUE);
     gtk_tree_view_column_set_title(column, "Memory Cache");
     gtk_tree_view_column_set_cell_data_func(column, renderer, format_cache_cell, NULL, NULL);
     gtk_tree_view_column_set_resizable(column, TRUE);

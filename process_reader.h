@@ -3,7 +3,7 @@
 
 #include <stdbool.h>
 
-#define MAX_PROCESSES 150
+#define MAX_PROCESSES 1024
 
 typedef struct {
     int pid;

@@ -233,6 +233,8 @@ void process_reader_update(ProcessList *list, bool demo_mode) {
         }
         fclose(f_statm);
 
+        if (size == 0) continue; /* Skip kernel threads and idle hardware workers with no user-space footprints */
+
         /* RAM = resident set size (RSS) in MB */
         double ram_mb = (resident * page_size) / (1024.0 * 1024.0);
         /* Cache = shared memory and libraries in MB */
