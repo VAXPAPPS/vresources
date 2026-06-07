@@ -27,51 +27,240 @@ static void show_error_dialog(GtkWindow *parent, const char *title, const char *
     gtk_window_present(GTK_WINDOW(dialog));
 }
 
-/* Helper to parse status properties from procfs */
-static void get_process_properties(int pid, int *ppid, char *state, int *threads, char *owner, char *cmdline) {
-    *ppid = 0;
-    strcpy(state, "Unknown");
-    *threads = 1;
-    strcpy(owner, "Unknown");
-    strcpy(cmdline, "N/A");
+#include <time.h>
 
+typedef struct {
+    unsigned long vm_size_kb;
+    unsigned long vm_rss_kb;
+    unsigned long vm_data_kb;
+    unsigned long vm_lib_kb;
+    char state[128];
+    int ppid;
+    int threads;
+    int uid;
+} ProcStatusInfo;
+
+static void parse_proc_status(int pid, ProcStatusInfo *info) {
+    memset(info, 0, sizeof(ProcStatusInfo));
+    info->ppid = -1;
+    info->uid = -1;
+    strcpy(info->state, "Unknown");
+    
     char path[256];
     snprintf(path, sizeof(path), "/proc/%d/status", pid);
     FILE *f = fopen(path, "r");
+    if (!f) return;
+    
+    char line[256];
+    while (fgets(line, sizeof(line), f)) {
+        if (strncmp(line, "State:", 6) == 0) {
+            char *s = line + 6;
+            while (*s && isspace((unsigned char)*s)) s++;
+            strncpy(info->state, s, sizeof(info->state) - 1);
+            info->state[sizeof(info->state) - 1] = '\0';
+            char *nl = strchr(info->state, '\n');
+            if (nl) *nl = '\0';
+        } else if (strncmp(line, "PPid:", 5) == 0) {
+            info->ppid = atoi(line + 5);
+        } else if (strncmp(line, "Threads:", 8) == 0) {
+            info->threads = atoi(line + 8);
+        } else if (strncmp(line, "Uid:", 4) == 0) {
+            sscanf(line + 4, "%d", &info->uid);
+        } else if (strncmp(line, "VmSize:", 7) == 0) {
+            sscanf(line + 7, "%lu", &info->vm_size_kb);
+        } else if (strncmp(line, "VmRSS:", 6) == 0) {
+            sscanf(line + 6, "%lu", &info->vm_rss_kb);
+        } else if (strncmp(line, "VmData:", 7) == 0) {
+            sscanf(line + 7, "%lu", &info->vm_data_kb);
+        } else if (strncmp(line, "VmLib:", 6) == 0) {
+            sscanf(line + 6, "%lu", &info->vm_lib_kb);
+        }
+    }
+    fclose(f);
+}
+
+static unsigned long get_system_btime(void) {
+    FILE *f = fopen("/proc/stat", "r");
+    if (!f) return 0;
+    char line[256];
+    unsigned long btime = 0;
+    while (fgets(line, sizeof(line), f)) {
+        if (strncmp(line, "btime ", 6) == 0) {
+            sscanf(line + 6, "%lu", &btime);
+            break;
+        }
+    }
+    fclose(f);
+    return btime;
+}
+
+static void get_security_context(int pid, char *buf, size_t max_len) {
+    snprintf(buf, max_len, "N/A");
+    char path[256];
+    snprintf(path, sizeof(path), "/proc/%d/attr/current", pid);
+    FILE *f = fopen(path, "r");
     if (f) {
-        char line[512];
-        while (fgets(line, sizeof(line), f)) {
-            if (strncmp(line, "PPid:", 5) == 0) {
-                *ppid = atoi(line + 5);
-            } else if (strncmp(line, "State:", 6) == 0) {
-                char *s = line + 6;
-                while (*s && isspace((unsigned char)*s)) s++;
-                strncpy(state, s, 63);
-                state[63] = '\0';
-                char *nl = strchr(state, '\n');
-                if (nl) *nl = '\0';
-            } else if (strncmp(line, "Threads:", 8) == 0) {
-                *threads = atoi(line + 8);
-            } else if (strncmp(line, "Uid:", 4) == 0) {
-                int uid = 0;
-                sscanf(line + 4, "%d", &uid);
-                struct passwd *pw = getpwuid(uid);
-                if (pw) {
-                    strncpy(owner, pw->pw_name, 63);
-                    owner[63] = '\0';
-                } else {
-                    snprintf(owner, 64, "%d", uid);
-                }
-            }
+        if (fgets(buf, max_len, f)) {
+            char *nl = strchr(buf, '\n');
+            if (nl) *nl = '\0';
         }
         fclose(f);
     }
+}
 
-    snprintf(path, sizeof(path), "/proc/%d/cmdline", pid);
-    f = fopen(path, "r");
+static void get_wchan(int pid, char *buf, size_t max_len) {
+    snprintf(buf, max_len, "N/A");
+    char path[256];
+    snprintf(path, sizeof(path), "/proc/%d/wchan", pid);
+    FILE *f = fopen(path, "r");
     if (f) {
-        char buf[1024];
-        size_t n = fread(buf, 1, sizeof(buf) - 1, f);
+        if (fgets(buf, max_len, f)) {
+            char *nl = strchr(buf, '\n');
+            if (nl) *nl = '\0';
+        }
+        fclose(f);
+    }
+}
+
+static void get_cgroup(int pid, char *buf, size_t max_len) {
+    snprintf(buf, max_len, "N/A");
+    char path[256];
+    snprintf(path, sizeof(path), "/proc/%d/cgroup", pid);
+    FILE *f = fopen(path, "r");
+    if (f) {
+        char line[512];
+        if (fgets(line, sizeof(line), f)) {
+            char *colon1 = strchr(line, ':');
+            if (colon1) {
+                char *colon2 = strchr(colon1 + 1, ':');
+                if (colon2) {
+                    snprintf(buf, max_len, "%s", colon2 + 1);
+                } else {
+                    snprintf(buf, max_len, "%s", line);
+                }
+            } else {
+                snprintf(buf, max_len, "%s", line);
+            }
+            char *nl = strchr(buf, '\n');
+            if (nl) *nl = '\0';
+        }
+        fclose(f);
+    }
+}
+
+static void add_property_row(GtkWidget *parent_box, const char *label_text, const char *value_text) {
+    GtkWidget *row_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+    gtk_widget_add_css_class(row_box, "info-list-row");
+    gtk_widget_set_margin_start(row_box, 4);
+    gtk_widget_set_margin_end(row_box, 4);
+    
+    GtkWidget *lbl_l = gtk_label_new(label_text);
+    gtk_widget_add_css_class(lbl_l, "info-list-label");
+    gtk_widget_set_halign(lbl_l, GTK_ALIGN_START);
+    gtk_widget_set_hexpand(lbl_l, TRUE);
+    gtk_box_append(GTK_BOX(row_box), lbl_l);
+    
+    GtkWidget *lbl_v = gtk_label_new(value_text);
+    gtk_widget_add_css_class(lbl_v, "info-list-value");
+    gtk_widget_set_halign(lbl_v, GTK_ALIGN_END);
+    gtk_label_set_selectable(GTK_LABEL(lbl_v), TRUE);
+    
+    if (strlen(value_text) > 40) {
+        gtk_label_set_wrap(GTK_LABEL(lbl_v), TRUE);
+        gtk_label_set_wrap_mode(GTK_LABEL(lbl_v), PANGO_WRAP_WORD_CHAR);
+        gtk_widget_set_size_request(lbl_v, 300, -1);
+    }
+    gtk_box_append(GTK_BOX(row_box), lbl_v);
+    
+    gtk_box_append(GTK_BOX(parent_box), row_box);
+}
+
+static void add_section_header(GtkWidget *parent_box, const char *title) {
+    GtkWidget *lbl = gtk_label_new(title);
+    gtk_widget_add_css_class(lbl, "card-title");
+    gtk_widget_set_halign(lbl, GTK_ALIGN_START);
+    gtk_widget_set_margin_top(lbl, 16);
+    gtk_widget_set_margin_bottom(lbl, 6);
+    gtk_box_append(GTK_BOX(parent_box), lbl);
+}
+
+/* --- ACTION 1: PROPERTIES DIALOG --- */
+void process_action_properties(GtkWindow *parent, int pid, const char *name, double cpu_percent, double ram_mb, double real_mem_mb, double gpu_percent, double cache_mb) {
+    (void)gpu_percent;
+    
+    ProcStatusInfo status_info;
+    parse_proc_status(pid, &status_info);
+    
+    char owner[128] = "Unknown";
+    if (status_info.uid >= 0) {
+        struct passwd *pw = getpwuid(status_info.uid);
+        if (pw) {
+            strncpy(owner, pw->pw_name, sizeof(owner) - 1);
+            owner[sizeof(owner) - 1] = '\0';
+        } else {
+            snprintf(owner, sizeof(owner), "%d", status_info.uid);
+        }
+    }
+    
+    char sec_context[256] = "N/A";
+    get_security_context(pid, sec_context, sizeof(sec_context));
+    
+    char wchan_str[128] = "N/A";
+    get_wchan(pid, wchan_str, sizeof(wchan_str));
+    
+    char cgroup_str[512] = "N/A";
+    get_cgroup(pid, cgroup_str, sizeof(cgroup_str));
+    
+    char state_char = '?';
+    int ppid_stat = -1;
+    unsigned long utime = 0;
+    unsigned long stime = 0;
+    long priority = 0;
+    long nice_val = 0;
+    unsigned long long starttime = 0;
+    
+    char path[256];
+    snprintf(path, sizeof(path), "/proc/%d/stat", pid);
+    FILE *f_stat = fopen(path, "r");
+    if (f_stat) {
+        char line_stat[1024];
+        if (fgets(line_stat, sizeof(line_stat), f_stat)) {
+            char *open_p = strchr(line_stat, '(');
+            char *close_p = strrchr(line_stat, ')');
+            if (open_p && close_p && close_p > open_p) {
+                sscanf(close_p + 2, "%c %d %*d %*d %*d %*d %*u %*u %*u %*u %*u %lu %lu %*d %*d %ld %ld %*d %*d %llu",
+                       &state_char, &ppid_stat, &utime, &stime, &priority, &nice_val, &starttime);
+            }
+        }
+        fclose(f_stat);
+    }
+    
+    char started_str[64] = "Unknown";
+    unsigned long btime = get_system_btime();
+    long clk_tck = sysconf(_SC_CLK_TCK);
+    if (btime > 0 && clk_tck > 0 && starttime > 0) {
+        time_t start_epoch = btime + (starttime / clk_tck);
+        struct tm *tinfo = localtime(&start_epoch);
+        if (tinfo) {
+            strftime(started_str, sizeof(started_str), "%Y-%m-%d %H:%M:%S", tinfo);
+        }
+    }
+    
+    char cpu_time_str[64] = "00:00:00";
+    if (clk_tck > 0) {
+        unsigned long total_seconds = (utime + stime) / clk_tck;
+        unsigned int hours = total_seconds / 3600;
+        unsigned int minutes = (total_seconds % 3600) / 60;
+        unsigned int seconds = total_seconds % 60;
+        snprintf(cpu_time_str, sizeof(cpu_time_str), "%02u:%02u:%02u", hours, minutes, seconds);
+    }
+    
+    char cmdline[2048] = "N/A";
+    snprintf(path, sizeof(path), "/proc/%d/cmdline", pid);
+    FILE *f_cmd = fopen(path, "r");
+    if (f_cmd) {
+        char buf[2048];
+        size_t n = fread(buf, 1, sizeof(buf) - 1, f_cmd);
         if (n > 0) {
             for (size_t i = 0; i < n - 1; i++) {
                 if (buf[i] == '\0') {
@@ -79,28 +268,18 @@ static void get_process_properties(int pid, int *ppid, char *state, int *threads
                 }
             }
             buf[n] = '\0';
-            strncpy(cmdline, buf, 1023);
-            cmdline[1023] = '\0';
+            strncpy(cmdline, buf, sizeof(cmdline) - 1);
+            cmdline[sizeof(cmdline) - 1] = '\0';
         }
-        fclose(f);
+        fclose(f_cmd);
     }
-}
-
-/* --- ACTION 1: PROPERTIES DIALOG --- */
-void process_action_properties(GtkWindow *parent, int pid, const char *name) {
-    int ppid = 0;
-    char state[64] = "";
-    int threads = 1;
-    char owner[64] = "";
-    char cmdline[1024] = "";
-    
-    get_process_properties(pid, &ppid, state, &threads, owner, cmdline);
     
     GtkWidget *dialog = gtk_window_new();
     gtk_window_set_title(GTK_WINDOW(dialog), "Process Properties");
     gtk_window_set_transient_for(GTK_WINDOW(dialog), parent);
     gtk_window_set_modal(GTK_WINDOW(dialog), TRUE);
-    gtk_window_set_default_size(GTK_WINDOW(dialog), 480, 320);
+    gtk_window_set_default_size(GTK_WINDOW(dialog), 540, 600);
+    gtk_widget_add_css_class(dialog, "main-window");
     
     GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
     gtk_widget_set_margin_start(vbox, 16);
@@ -109,55 +288,90 @@ void process_action_properties(GtkWindow *parent, int pid, const char *name) {
     gtk_widget_set_margin_bottom(vbox, 16);
     gtk_window_set_child(GTK_WINDOW(dialog), vbox);
     
-    char title_buf[256];
-    snprintf(title_buf, sizeof(title_buf), "%s (PID %d)", name, pid);
-    GtkWidget *lbl_title = gtk_label_new(title_buf);
-    gtk_widget_add_css_class(lbl_title, "card-title");
-    gtk_box_append(GTK_BOX(vbox), lbl_title);
+    GtkWidget *header_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+    gtk_widget_add_css_class(header_box, "card");
     
-    GtkWidget *grid = gtk_grid_new();
-    gtk_grid_set_row_spacing(GTK_GRID(grid), 8);
-    gtk_grid_set_column_spacing(GTK_GRID(grid), 16);
-    gtk_box_append(GTK_BOX(vbox), grid);
+    GtkWidget *lbl_name = gtk_label_new(name);
+    gtk_widget_add_css_class(lbl_name, "card-value");
+    gtk_widget_set_halign(lbl_name, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(header_box), lbl_name);
     
-    int row = 0;
+    char sub_buf[256];
+    snprintf(sub_buf, sizeof(sub_buf), "PID %d  •  %s", pid, status_info.state);
+    GtkWidget *lbl_sub = gtk_label_new(sub_buf);
+    gtk_widget_add_css_class(lbl_sub, "info-list-label");
+    gtk_widget_set_halign(lbl_sub, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(header_box), lbl_sub);
     
-    #define ADD_GRID_ROW(label, value) { \
-        GtkWidget *lbl_l = gtk_label_new(label); \
-        gtk_widget_add_css_class(lbl_l, "info-list-label"); \
-        gtk_widget_set_halign(lbl_l, GTK_ALIGN_START); \
-        gtk_grid_attach(GTK_GRID(grid), lbl_l, 0, row, 1, 1); \
-        GtkWidget *lbl_v = gtk_label_new(value); \
-        gtk_widget_add_css_class(lbl_v, "info-list-value"); \
-        gtk_widget_set_halign(lbl_v, GTK_ALIGN_START); \
-        gtk_grid_attach(GTK_GRID(grid), lbl_v, 1, row, 1, 1); \
-        row++; \
-    }
-    
-    char buf[128];
-    snprintf(buf, sizeof(buf), "%d", ppid);
-    ADD_GRID_ROW("Parent PID:", buf);
-    ADD_GRID_ROW("State:", state);
-    snprintf(buf, sizeof(buf), "%d", threads);
-    ADD_GRID_ROW("Active Threads:", buf);
-    ADD_GRID_ROW("User Owner:", owner);
-    
-    GtkWidget *lbl_cmd_lbl = gtk_label_new("Command Line:");
-    gtk_widget_add_css_class(lbl_cmd_lbl, "info-list-label");
-    gtk_widget_set_halign(lbl_cmd_lbl, GTK_ALIGN_START);
-    gtk_box_append(GTK_BOX(vbox), lbl_cmd_lbl);
+    gtk_box_append(GTK_BOX(vbox), header_box);
     
     GtkWidget *scroll = gtk_scrolled_window_new();
-    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
     gtk_widget_set_vexpand(scroll, TRUE);
     gtk_box_append(GTK_BOX(vbox), scroll);
     
-    GtkWidget *lbl_cmd = gtk_label_new(cmdline);
-    gtk_widget_add_css_class(lbl_cmd, "info-list-value");
-    gtk_label_set_wrap(GTK_LABEL(lbl_cmd), TRUE);
-    gtk_label_set_selectable(GTK_LABEL(lbl_cmd), TRUE);
-    gtk_widget_set_halign(lbl_cmd, GTK_ALIGN_START);
-    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), lbl_cmd);
+    GtkWidget *scroll_content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_widget_add_css_class(scroll_content, "card");
+    gtk_widget_set_margin_bottom(scroll_content, 8);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), scroll_content);
+    
+    char buf[512];
+    
+    add_section_header(scroll_content, "General Info");
+    
+    snprintf(buf, sizeof(buf), "%d", pid);
+    add_property_row(scroll_content, "Process ID (PID):", buf);
+    
+    add_property_row(scroll_content, "User Owner:", owner);
+    
+    add_property_row(scroll_content, "Status (State):", status_info.state);
+    
+    add_property_row(scroll_content, "Started Time:", started_str);
+    
+    add_property_row(scroll_content, "Control Group (cgroup):", cgroup_str);
+    
+    add_property_row(scroll_content, "Security Context (SELinux):", sec_context);
+    
+    add_section_header(scroll_content, "Resource Consumption");
+    
+    snprintf(buf, sizeof(buf), "%.1f %%", cpu_percent);
+    add_property_row(scroll_content, "CPU Usage (%):", buf);
+    
+    add_property_row(scroll_content, "CPU Time (Total):", cpu_time_str);
+    
+    snprintf(buf, sizeof(buf), "%.1f MB", ram_mb);
+    add_property_row(scroll_content, "Memory (RSS Column):", buf);
+    
+    snprintf(buf, sizeof(buf), "%.1f MB", real_mem_mb);
+    add_property_row(scroll_content, "Real Memory (Private):", buf);
+    
+    snprintf(buf, sizeof(buf), "%.1f MB", cache_mb);
+    add_property_row(scroll_content, "Cache Memory (Shared):", buf);
+    
+    snprintf(buf, sizeof(buf), "%.1f MB", (double)status_info.vm_size_kb / 1024.0);
+    add_property_row(scroll_content, "Virtual Memory (VmSize):", buf);
+    
+    snprintf(buf, sizeof(buf), "%.1f MB", (double)status_info.vm_rss_kb / 1024.0);
+    add_property_row(scroll_content, "Resident Memory (VmRSS):", buf);
+    
+    snprintf(buf, sizeof(buf), "%.1f MB", (double)status_info.vm_data_kb / 1024.0);
+    add_property_row(scroll_content, "Writable Memory (VmData):", buf);
+    
+    snprintf(buf, sizeof(buf), "%.1f MB", (double)status_info.vm_lib_kb / 1024.0);
+    add_property_row(scroll_content, "Shared Memory (VmLib):", buf);
+    
+    add_section_header(scroll_content, "Scheduling & Kernel");
+    
+    snprintf(buf, sizeof(buf), "%ld", nice_val);
+    add_property_row(scroll_content, "Niceness (Nice):", buf);
+    
+    snprintf(buf, sizeof(buf), "%ld", priority);
+    add_property_row(scroll_content, "Priority:", buf);
+    
+    add_property_row(scroll_content, "Waiting Channel (wchan):", wchan_str);
+    
+    add_section_header(scroll_content, "Command Line");
+    add_property_row(scroll_content, "Command Line String:", cmdline);
     
     GtkWidget *btn_close = gtk_button_new_with_label("Close");
     gtk_widget_add_css_class(btn_close, "nav-btn");

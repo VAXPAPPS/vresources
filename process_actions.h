@@ -3,7 +3,7 @@
 
 #include <gtk/gtk.h>
 
-void process_action_properties(GtkWindow *parent, int pid, const char *name);
+void process_action_properties(GtkWindow *parent, int pid, const char *name, double cpu_percent, double ram_mb, double real_mem_mb, double gpu_percent, double cache_mb);
 void process_action_memory_map(GtkWindow *parent, int pid, const char *name);
 void process_action_open_files(GtkWindow *parent, int pid, const char *name);
 void process_action_change_priority(GtkWindow *parent, int pid, const char *name);

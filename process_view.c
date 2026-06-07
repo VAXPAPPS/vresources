@@ -110,6 +110,11 @@ static void on_search_changed(GtkSearchEntry *entry, gpointer user_data) {
 typedef struct {
     int pid;
     char name[256];
+    double cpu_percent;
+    double ram_mb;
+    double real_mem_mb;
+    double gpu_percent;
+    double cache_mb;
     GtkWidget *popover;
     GtkWindow *parent_win;
 } ContextMenuCallbackData;
@@ -134,7 +139,7 @@ static void on_menu_action_clicked(GtkWidget *btn, gpointer user_data) {
     gtk_popover_popdown(GTK_POPOVER(data->popover));
     
     if (strcmp(action, "properties") == 0) {
-        process_action_properties(data->parent_win, data->pid, data->name);
+        process_action_properties(data->parent_win, data->pid, data->name, data->cpu_percent, data->ram_mb, data->real_mem_mb, data->gpu_percent, data->cache_mb);
     } else if (strcmp(action, "maps") == 0) {
         process_action_memory_map(data->parent_win, data->pid, data->name);
     } else if (strcmp(action, "fd") == 0) {
@@ -154,7 +159,7 @@ static void on_menu_action_clicked(GtkWidget *btn, gpointer user_data) {
     }
 }
 
-static void show_process_context_menu(ProcessViewState *state, int pid, const char *name, double x, double y) {
+static void show_process_context_menu(ProcessViewState *state, int pid, const char *name, double cpu, double ram, double real_mem, double gpu, double cache, double x, double y) {
     GtkWidget *popover = gtk_popover_new();
     gtk_widget_set_parent(popover, state->tree_view);
     
@@ -164,6 +169,11 @@ static void show_process_context_menu(ProcessViewState *state, int pid, const ch
     ContextMenuCallbackData *data = g_new0(ContextMenuCallbackData, 1);
     data->pid = pid;
     strncpy(data->name, name, sizeof(data->name) - 1);
+    data->cpu_percent = cpu;
+    data->ram_mb = ram;
+    data->real_mem_mb = real_mem;
+    data->gpu_percent = gpu;
+    data->cache_mb = cache;
     data->popover = popover;
     data->parent_win = state->parent_window;
     g_signal_connect(popover, "destroy", G_CALLBACK(on_popover_destroy), data);
@@ -238,7 +248,16 @@ static void on_treeview_right_click(GtkGestureClick *gesture, int n_press, doubl
         if (gtk_tree_selection_get_selected(selection, &model, &iter)) {
             int pid;
             char *name = NULL;
-            gtk_tree_model_get(model, &iter, COL_PID, &pid, COL_NAME, &name, -1);
+            double cpu = 0.0, ram = 0.0, real_mem = 0.0, gpu = 0.0, cache = 0.0;
+            gtk_tree_model_get(model, &iter, 
+                               COL_PID, &pid, 
+                               COL_NAME, &name, 
+                               COL_CPU, &cpu,
+                               COL_RAM, &ram,
+                               COL_REAL_MEM, &real_mem,
+                               COL_GPU, &gpu,
+                               COL_CACHE, &cache,
+                               -1);
             
             char name_buf[256];
             if (name) {
@@ -249,7 +268,7 @@ static void on_treeview_right_click(GtkGestureClick *gesture, int n_press, doubl
                 strcpy(name_buf, "Unknown");
             }
             
-            show_process_context_menu(state, pid, name_buf, x, y);
+            show_process_context_menu(state, pid, name_buf, cpu, ram, real_mem, gpu, cache, x, y);
         }
         gtk_tree_path_free(path);
     }
