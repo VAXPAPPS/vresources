@@ -161,9 +161,14 @@ GtkWidget *create_process_view(GtkWidget *parent, gpointer ui_context) {
 
     /* 1. Name Column */
     renderer = gtk_cell_renderer_text_new();
+    g_object_set(renderer,
+                 "ellipsize", 3, /* PANGO_ELLIPSIZE_END is 3. Using number to avoid any header dependency issues */
+                 "width-chars", 20,
+                 "max-width-chars", 20,
+                 NULL);
     column = gtk_tree_view_column_new_with_attributes("Application / Service", renderer, "text", COL_NAME, NULL);
     gtk_tree_view_column_set_resizable(column, TRUE);
-    gtk_tree_view_column_set_min_width(column, 240);
+    gtk_tree_view_column_set_min_width(column, 160);
     gtk_tree_view_column_set_sort_column_id(column, COL_NAME);
     gtk_tree_view_append_column(GTK_TREE_VIEW(state->tree_view), column);
 
