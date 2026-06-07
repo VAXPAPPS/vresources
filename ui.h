@@ -11,7 +11,7 @@ typedef struct {
     /* Chart data structures */
     HistoryChart *cpu_history;
     HistoryChart *mem_history;
-    HistoryChart *gpu_history;
+    HistoryChart *gpu_histories[MAX_GPUS];
     HistoryChart *net_rx_history;
     HistoryChart *net_tx_history;
     HistoryChart *disk_r_history;
@@ -21,7 +21,7 @@ typedef struct {
     /* Radial Gauges */
     RadialGauge cpu_gauge;
     RadialGauge mem_gauge;
-    RadialGauge gpu_gauge;
+    RadialGauge gpu_gauges[MAX_GPUS];
     RadialGauge bat_gauge;
     
     /* GTK widgets that need live updating */
@@ -32,8 +32,8 @@ typedef struct {
     GtkWidget *lbl_ov_cpu_sub;
     GtkWidget *lbl_ov_mem_val;
     GtkWidget *lbl_ov_mem_sub;
-    GtkWidget *lbl_ov_gpu_val;
-    GtkWidget *lbl_ov_gpu_sub;
+    GtkWidget *lbl_ov_gpu_val[MAX_GPUS];
+    GtkWidget *lbl_ov_gpu_sub[MAX_GPUS];
     GtkWidget *lbl_ov_net_val;
     GtkWidget *lbl_ov_net_sub;
     GtkWidget *lbl_ov_store_val;
@@ -43,7 +43,7 @@ typedef struct {
     
     GtkWidget *da_ov_cpu;
     GtkWidget *da_ov_mem;
-    GtkWidget *da_ov_gpu;
+    GtkWidget *da_ov_gpu[MAX_GPUS];
     GtkWidget *da_ov_bat;
 
     /* CPU Details widgets */
@@ -66,6 +66,9 @@ typedef struct {
     GtkWidget *da_mem_gauge;
     
     /* GPU Details widgets */
+    GtkWidget *box_gpu_selector;
+    GtkWidget *gpu_selector_btn[MAX_GPUS];
+    int selected_gpu_idx;
     GtkWidget *lbl_gpu_model;
     GtkWidget *lbl_gpu_load;
     GtkWidget *lbl_gpu_vram;

@@ -33,7 +33,9 @@ static void on_window_destroy(GtkWidget *widget, gpointer user_data) {
     /* Free chart structures */
     chart_history_free(ctx->cpu_history);
     chart_history_free(ctx->mem_history);
-    chart_history_free(ctx->gpu_history);
+    for (int i = 0; i < MAX_GPUS; i++) {
+        chart_history_free(ctx->gpu_histories[i]);
+    }
     chart_history_free(ctx->net_rx_history);
     chart_history_free(ctx->net_tx_history);
     chart_history_free(ctx->disk_r_history);

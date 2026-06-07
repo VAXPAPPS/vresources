@@ -28,14 +28,23 @@ typedef struct {
     double swap_percent;
 } MemoryStats;
 
+#define MAX_GPUS 2
+
 typedef struct {
+    bool present;
     char model[128];
+    char brand[32];             /* "Intel", "AMD", "NVIDIA", "Unknown" */
     double usage_percent;
     double total_vram_gb;
     double used_vram_gb;
     double vram_percent;
     double temperature_c;
     double core_clock_mhz;
+} GpuDevice;
+
+typedef struct {
+    int gpu_count;
+    GpuDevice gpus[MAX_GPUS];
 } GpuStats;
 
 typedef struct {

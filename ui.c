@@ -221,7 +221,13 @@ GtkWidget *create_main_ui(GtkApplication *app, UIContext *ctx) {
     /* Allocate historical charts */
     ctx->cpu_history = chart_history_new(120, 0.0, 100.0, false, 0.0, 0.95, 0.99); /* Cyan */
     ctx->mem_history = chart_history_new(120, 0.0, 100.0, false, 0.61, 0.32, 0.88); /* Purple */
-    ctx->gpu_history = chart_history_new(120, 0.0, 100.0, false, 0.44, 1.0, 0.0);    /* Green */
+    for (int i = 0; i < MAX_GPUS; i++) {
+        if (i == 0) {
+            ctx->gpu_histories[i] = chart_history_new(120, 0.0, 100.0, false, 0.44, 1.0, 0.0); /* Green iGPU */
+        } else {
+            ctx->gpu_histories[i] = chart_history_new(120, 0.0, 100.0, false, 0.0, 0.95, 0.99); /* Cyan dGPU */
+        }
+    }
     ctx->net_rx_history = chart_history_new(120, 0.0, 1000.0, true, 1.0, 0.0, 0.48);  /* Pink (Download) */
     ctx->net_tx_history = chart_history_new(120, 0.0, 1000.0, true, 0.0, 0.95, 0.99);  /* Cyan (Upload) */
     ctx->disk_r_history = chart_history_new(120, 0.0, 10.0, true, 0.95, 0.79, 0.15);  /* Yellow (Read) */
@@ -239,10 +245,16 @@ GtkWidget *create_main_ui(GtkApplication *app, UIContext *ctx) {
     ctx->mem_gauge.color_r = 0.61; ctx->mem_gauge.color_g = 0.32; ctx->mem_gauge.color_b = 0.88;
     ctx->mem_gauge.value = 0.0;
 
-    strcpy(ctx->gpu_gauge.label, "GPU");
-    strcpy(ctx->gpu_gauge.unit, "%");
-    ctx->gpu_gauge.color_r = 0.44; ctx->gpu_gauge.color_g = 1.0; ctx->gpu_gauge.color_b = 0.0;
-    ctx->gpu_gauge.value = 0.0;
+    for (int i = 0; i < MAX_GPUS; i++) {
+        snprintf(ctx->gpu_gauges[i].label, sizeof(ctx->gpu_gauges[i].label), "GPU %d", i);
+        strcpy(ctx->gpu_gauges[i].unit, "%");
+        if (i == 0) {
+            ctx->gpu_gauges[i].color_r = 0.44; ctx->gpu_gauges[i].color_g = 1.0; ctx->gpu_gauges[i].color_b = 0.0;
+        } else {
+            ctx->gpu_gauges[i].color_r = 0.0; ctx->gpu_gauges[i].color_g = 0.95; ctx->gpu_gauges[i].color_b = 0.99;
+        }
+        ctx->gpu_gauges[i].value = 0.0;
+    }
 
     strcpy(ctx->bat_gauge.label, "BAT");
     strcpy(ctx->bat_gauge.unit, "%");
@@ -380,7 +392,51 @@ GtkWidget *create_main_ui(GtkApplication *app, UIContext *ctx) {
 
     GtkWidget *card_ov_cpu = make_ov_card("CPU UTILIZATION", "cpu-theme", &ctx->lbl_ov_cpu_val, &ctx->lbl_ov_cpu_sub, &ctx->da_ov_cpu, &ctx->cpu_gauge);
     GtkWidget *card_ov_mem = make_ov_card("MEMORY ALLOCATION", "memory-theme", &ctx->lbl_ov_mem_val, &ctx->lbl_ov_mem_sub, &ctx->da_ov_mem, &ctx->mem_gauge);
-    GtkWidget *card_ov_gpu = make_ov_card("GPU TELEMETRY", "gpu-theme", &ctx->lbl_ov_gpu_val, &ctx->lbl_ov_gpu_sub, &ctx->da_ov_gpu, &ctx->gpu_gauge);
+    GtkWidget *card_ov_gpu;
+    if (ctx->stats.gpu.gpu_count == 1) {
+        card_ov_gpu = make_ov_card("GPU TELEMETRY", "gpu-theme", 
+                                   &ctx->lbl_ov_gpu_val[0], &ctx->lbl_ov_gpu_sub[0], 
+                                   &ctx->da_ov_gpu[0], &ctx->gpu_gauges[0]);
+    } else {
+        GtkWidget *gpu_hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 16);
+        for (int i = 0; i < 2; i++) {
+            GtkWidget *sub_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+            gtk_widget_set_hexpand(sub_box, TRUE);
+            
+            char gpu_lbl_text[32];
+            snprintf(gpu_lbl_text, sizeof(gpu_lbl_text), "GPU %d (%s)", i, ctx->stats.gpu.gpus[i].brand);
+            GtkWidget *lbl_title = gtk_label_new(NULL);
+            gtk_label_set_markup(GTK_LABEL(lbl_title), g_strdup_printf("<span font='8' weight='bold' color='#8c8c8c'>%s</span>", gpu_lbl_text));
+            gtk_widget_set_halign(lbl_title, GTK_ALIGN_START);
+            gtk_box_append(GTK_BOX(sub_box), lbl_title);
+            
+            GtkWidget *row_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+            GtkWidget *vtext_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+            gtk_widget_set_hexpand(vtext_box, TRUE);
+            
+            ctx->lbl_ov_gpu_val[i] = gtk_label_new("0%");
+            gtk_widget_add_css_class(ctx->lbl_ov_gpu_val[i], "card-value");
+            gtk_label_set_markup(GTK_LABEL(ctx->lbl_ov_gpu_val[i]), "<span font='16' weight='bold'>0%</span>");
+            gtk_widget_set_halign(ctx->lbl_ov_gpu_val[i], GTK_ALIGN_START);
+            gtk_box_append(GTK_BOX(vtext_box), ctx->lbl_ov_gpu_val[i]);
+            
+            ctx->lbl_ov_gpu_sub[i] = gtk_label_new("VRAM: --");
+            gtk_widget_add_css_class(ctx->lbl_ov_gpu_sub[i], "info-list-label");
+            gtk_widget_set_halign(ctx->lbl_ov_gpu_sub[i], GTK_ALIGN_START);
+            gtk_box_append(GTK_BOX(vtext_box), ctx->lbl_ov_gpu_sub[i]);
+            
+            gtk_box_append(GTK_BOX(row_box), vtext_box);
+            
+            ctx->da_ov_gpu[i] = gtk_drawing_area_new();
+            gtk_widget_set_size_request(ctx->da_ov_gpu[i], 56, 56);
+            gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(ctx->da_ov_gpu[i]), draw_radial_gauge, &ctx->gpu_gauges[i], NULL);
+            gtk_box_append(GTK_BOX(row_box), ctx->da_ov_gpu[i]);
+            
+            gtk_box_append(GTK_BOX(sub_box), row_box);
+            gtk_box_append(GTK_BOX(gpu_hbox), sub_box);
+        }
+        card_ov_gpu = create_card("GPU TELEMETRY", gpu_hbox, "gpu-theme");
+    }
     
     /* Storage card (No gauge, custom bar) */
     GtkWidget *store_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
@@ -541,29 +597,73 @@ GtkWidget *create_main_ui(GtkApplication *app, UIContext *ctx) {
     gtk_stack_add_named(GTK_STACK(ctx->stack), page_mem, "memory");
 
     /* --- PAGE 4: GPU DETAILS --- */
-    GtkWidget *page_gpu = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    GtkWidget *page_gpu = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
     gtk_widget_set_margin_start(page_gpu, 12);
     gtk_widget_set_margin_end(page_gpu, 12);
     gtk_widget_set_margin_top(page_gpu, 12);
     gtk_widget_set_margin_bottom(page_gpu, 12);
 
+    ctx->selected_gpu_idx = 0;
+
+    /* Top Row: Sub-navigation selector for multiple GPUs */
+    if (ctx->stats.gpu.gpu_count == 2) {
+        ctx->box_gpu_selector = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+        gtk_widget_set_margin_bottom(ctx->box_gpu_selector, 4);
+        gtk_box_append(GTK_BOX(page_gpu), ctx->box_gpu_selector);
+
+        void on_gpu_selector_toggled(GtkToggleButton *button, gpointer user_data) {
+            UIContext *c = (UIContext *)user_data;
+            if (gtk_toggle_button_get_active(button)) {
+                int gpu_idx = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "gpu-idx"));
+                c->selected_gpu_idx = gpu_idx;
+                
+                gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(c->da_gpu_chart), draw_history_chart, c->gpu_histories[gpu_idx], NULL);
+                gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(c->da_gpu_gauge), draw_radial_gauge, &c->gpu_gauges[gpu_idx], NULL);
+                
+                gtk_widget_queue_draw(c->da_gpu_chart);
+                gtk_widget_queue_draw(c->da_gpu_gauge);
+                update_ui(c);
+            }
+        }
+
+        for (int i = 0; i < 2; i++) {
+            char tab_label[64];
+            snprintf(tab_label, sizeof(tab_label), "GPU %d: %s", i, ctx->stats.gpu.gpus[i].brand);
+            ctx->gpu_selector_btn[i] = gtk_toggle_button_new_with_label(tab_label);
+            gtk_widget_add_css_class(ctx->gpu_selector_btn[i], "nav-btn");
+            g_object_set_data(G_OBJECT(ctx->gpu_selector_btn[i]), "gpu-idx", GINT_TO_POINTER(i));
+            
+            if (i == 0) {
+                gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(ctx->gpu_selector_btn[i]), TRUE);
+            } else {
+                gtk_toggle_button_set_group(GTK_TOGGLE_BUTTON(ctx->gpu_selector_btn[i]), GTK_TOGGLE_BUTTON(ctx->gpu_selector_btn[0]));
+            }
+            
+            g_signal_connect(ctx->gpu_selector_btn[i], "toggled", G_CALLBACK(on_gpu_selector_toggled), ctx);
+            gtk_box_append(GTK_BOX(ctx->box_gpu_selector), ctx->gpu_selector_btn[i]);
+        }
+    }
+
+    GtkWidget *gpu_content_hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_box_append(GTK_BOX(page_gpu), gpu_content_hbox);
+
     /* Graph left */
     ctx->da_gpu_chart = gtk_drawing_area_new();
     gtk_widget_set_size_request(ctx->da_gpu_chart, 460, 320);
-    gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(ctx->da_gpu_chart), draw_history_chart, ctx->gpu_history, NULL);
+    gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(ctx->da_gpu_chart), draw_history_chart, ctx->gpu_histories[0], NULL);
     GtkWidget *card_gpu_graph = create_card("GPU METRICS HISTORY (60s)", ctx->da_gpu_chart, "gpu-theme");
-    gtk_box_append(GTK_BOX(page_gpu), card_gpu_graph);
+    gtk_box_append(GTK_BOX(gpu_content_hbox), card_gpu_graph);
     gtk_widget_set_hexpand(card_gpu_graph, TRUE);
 
     /* Details right */
     GtkWidget *gpu_right_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_widget_set_size_request(gpu_right_box, 320, -1);
-    gtk_box_append(GTK_BOX(page_gpu), gpu_right_box);
+    gtk_box_append(GTK_BOX(gpu_content_hbox), gpu_right_box);
 
     /* Gauge */
     ctx->da_gpu_gauge = gtk_drawing_area_new();
     gtk_widget_set_size_request(ctx->da_gpu_gauge, 150, 150);
-    gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(ctx->da_gpu_gauge), draw_radial_gauge, &ctx->gpu_gauge, NULL);
+    gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(ctx->da_gpu_gauge), draw_radial_gauge, &ctx->gpu_gauges[0], NULL);
     gtk_box_append(GTK_BOX(gpu_right_box), create_card("GPU ENGINE LOAD", ctx->da_gpu_gauge, NULL));
 
     /* Info */
@@ -699,7 +799,9 @@ void update_ui(UIContext *ctx) {
     /* Step 2: Feed history charts and radial gauges */
     chart_history_add_point(ctx->cpu_history, ctx->stats.cpu.total_usage);
     chart_history_add_point(ctx->mem_history, ctx->stats.memory.ram_percent);
-    chart_history_add_point(ctx->gpu_history, ctx->stats.gpu.usage_percent);
+    for (int i = 0; i < ctx->stats.gpu.gpu_count; i++) {
+        chart_history_add_point(ctx->gpu_histories[i], ctx->stats.gpu.gpus[i].usage_percent);
+    }
     chart_history_add_point(ctx->net_rx_history, ctx->stats.network.total_rx_speed_kbps);
     chart_history_add_point(ctx->net_tx_history, ctx->stats.network.total_tx_speed_kbps);
     chart_history_add_point(ctx->disk_r_history, ctx->stats.storage.read_speed_mbps);
@@ -713,7 +815,9 @@ void update_ui(UIContext *ctx) {
 
     ctx->cpu_gauge.value = ctx->stats.cpu.total_usage;
     ctx->mem_gauge.value = ctx->stats.memory.ram_percent;
-    ctx->gpu_gauge.value = ctx->stats.gpu.usage_percent;
+    for (int i = 0; i < ctx->stats.gpu.gpu_count; i++) {
+        ctx->gpu_gauges[i].value = ctx->stats.gpu.gpus[i].usage_percent;
+    }
     ctx->bat_gauge.value = ctx->stats.battery.present ? ctx->stats.battery.charge_percent : 0.0;
 
     /* Step 3: Trigger redraws on detail charts */
@@ -727,11 +831,15 @@ void update_ui(UIContext *ctx) {
     /* Trigger redraws on overview gauges */
     if (ctx->da_ov_cpu) gtk_widget_queue_draw(ctx->da_ov_cpu);
     if (ctx->da_ov_mem) gtk_widget_queue_draw(ctx->da_ov_mem);
-    if (ctx->da_ov_gpu) gtk_widget_queue_draw(ctx->da_ov_gpu);
+    for (int i = 0; i < ctx->stats.gpu.gpu_count; i++) {
+        if (ctx->da_ov_gpu[i]) gtk_widget_queue_draw(ctx->da_ov_gpu[i]);
+    }
     if (ctx->da_ov_bat) gtk_widget_queue_draw(ctx->da_ov_bat);
 
     if (ctx->da_mem_gauge) gtk_widget_queue_draw(ctx->da_mem_gauge);
-    if (ctx->da_gpu_gauge) gtk_widget_queue_draw(ctx->da_gpu_gauge);
+    for (int i = 0; i < ctx->stats.gpu.gpu_count; i++) {
+        if (ctx->da_gpu_gauge) gtk_widget_queue_draw(ctx->da_gpu_gauge);
+    }
 
     /* Step 4: Update Dashboard Texts */
     char buf[128];
@@ -749,10 +857,22 @@ void update_ui(UIContext *ctx) {
     gtk_label_set_text(GTK_LABEL(ctx->lbl_ov_mem_sub), buf);
 
     /* GPU dashboard */
-    snprintf(buf, sizeof(buf), "%.0f%%", ctx->stats.gpu.usage_percent);
-    gtk_label_set_text(GTK_LABEL(ctx->lbl_ov_gpu_val), buf);
-    snprintf(buf, sizeof(buf), "VRAM: %.1f GB / %.0f GB", ctx->stats.gpu.used_vram_gb, ctx->stats.gpu.total_vram_gb);
-    gtk_label_set_text(GTK_LABEL(ctx->lbl_ov_gpu_sub), buf);
+    for (int i = 0; i < ctx->stats.gpu.gpu_count; i++) {
+        if (ctx->lbl_ov_gpu_val[i]) {
+            snprintf(buf, sizeof(buf), "%.0f%%", ctx->stats.gpu.gpus[i].usage_percent);
+            if (ctx->stats.gpu.gpu_count == 2) {
+                char mark_buf[256];
+                snprintf(mark_buf, sizeof(mark_buf), "<span font='16' weight='bold'>%s</span>", buf);
+                gtk_label_set_markup(GTK_LABEL(ctx->lbl_ov_gpu_val[i]), mark_buf);
+            } else {
+                gtk_label_set_text(GTK_LABEL(ctx->lbl_ov_gpu_val[i]), buf);
+            }
+        }
+        if (ctx->lbl_ov_gpu_sub[i]) {
+            snprintf(buf, sizeof(buf), "VRAM: %.1fG/%.0fG", ctx->stats.gpu.gpus[i].used_vram_gb, ctx->stats.gpu.gpus[i].total_vram_gb);
+            gtk_label_set_text(GTK_LABEL(ctx->lbl_ov_gpu_sub[i]), buf);
+        }
+    }
 
     /* Network dashboard */
     if (ctx->stats.network.total_rx_speed_kbps > 1000.0) {
@@ -810,14 +930,15 @@ void update_ui(UIContext *ctx) {
     gtk_label_set_text(GTK_LABEL(ctx->lbl_mem_swap), buf);
 
     /* GPU details */
-    gtk_label_set_text(GTK_LABEL(ctx->lbl_gpu_model), ctx->stats.gpu.model);
-    snprintf(buf, sizeof(buf), "%.1f MHz", ctx->stats.gpu.core_clock_mhz);
+    int active_gpu = ctx->selected_gpu_idx;
+    gtk_label_set_text(GTK_LABEL(ctx->lbl_gpu_model), ctx->stats.gpu.gpus[active_gpu].model);
+    snprintf(buf, sizeof(buf), "%.1f MHz", ctx->stats.gpu.gpus[active_gpu].core_clock_mhz);
     gtk_label_set_text(GTK_LABEL(ctx->lbl_gpu_clock), buf);
-    snprintf(buf, sizeof(buf), "%.1f%%", ctx->stats.gpu.usage_percent);
+    snprintf(buf, sizeof(buf), "%.1f%%", ctx->stats.gpu.gpus[active_gpu].usage_percent);
     gtk_label_set_text(GTK_LABEL(ctx->lbl_gpu_load), buf);
-    snprintf(buf, sizeof(buf), "%.2f GB / %.2f GB (%.1f%%)", ctx->stats.gpu.used_vram_gb, ctx->stats.gpu.total_vram_gb, ctx->stats.gpu.vram_percent);
+    snprintf(buf, sizeof(buf), "%.2f GB / %.2f GB (%.1f%%)", ctx->stats.gpu.gpus[active_gpu].used_vram_gb, ctx->stats.gpu.gpus[active_gpu].total_vram_gb, ctx->stats.gpu.gpus[active_gpu].vram_percent);
     gtk_label_set_text(GTK_LABEL(ctx->lbl_gpu_vram), buf);
-    snprintf(buf, sizeof(buf), "%.1f °C", ctx->stats.gpu.temperature_c);
+    snprintf(buf, sizeof(buf), "%.1f °C", ctx->stats.gpu.gpus[active_gpu].temperature_c);
     gtk_label_set_text(GTK_LABEL(ctx->lbl_gpu_temp), buf);
 
     /* Network details */

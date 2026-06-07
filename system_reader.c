@@ -7,6 +7,7 @@
 #include <time.h>
 #include <dirent.h>
 #include <sys/statvfs.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <ifaddrs.h>
@@ -125,16 +126,40 @@ static void generate_simulation_data(SystemStats *stats, double elapsed) {
     stats->memory.used_swap_gb = 1.2 + 0.1 * sin(sim_time * 0.02);
     stats->memory.swap_percent = (stats->memory.used_swap_gb / stats->memory.total_swap_gb) * 100.0;
 
-    /* GPU simulation */
-    strcpy(stats->gpu.model, "VAXP Quantum-G Core (Integrated)");
-    stats->gpu.usage_percent = 20.0 + 15.0 * sin(sim_time * 0.15) + (rand() % 5);
-    if (stats->gpu.usage_percent < 0) stats->gpu.usage_percent = 0;
-    if (stats->gpu.usage_percent > 100) stats->gpu.usage_percent = 100;
-    stats->gpu.total_vram_gb = 4.0;
-    stats->gpu.used_vram_gb = 1.1 + 0.4 * sin(sim_time * 0.05);
-    stats->gpu.vram_percent = (stats->gpu.used_vram_gb / stats->gpu.total_vram_gb) * 100.0;
-    stats->gpu.temperature_c = 38.0 + 22.0 * (stats->gpu.usage_percent / 100.0);
-    stats->gpu.core_clock_mhz = 900.0 + 400.0 * (stats->gpu.usage_percent / 100.0);
+    /* GPU simulation for dual GPU demo mode */
+    stats->gpu.gpu_count = 2;
+    
+    /* GPU 0: Intel integrated */
+    GpuDevice *g0 = &stats->gpu.gpus[0];
+    g0->present = true;
+    strcpy(g0->brand, "Intel");
+    strcpy(g0->model, "Intel Iris Xe Graphics (Integrated)");
+    g0->usage_percent = 15.0 + 8.0 * sin(sim_time * 0.15) + (rand() % 5);
+    g0->total_vram_gb = 4.0;
+    g0->used_vram_gb = 0.8 + 0.2 * sin(sim_time * 0.05);
+    g0->vram_percent = (g0->used_vram_gb / g0->total_vram_gb) * 100.0;
+    g0->temperature_c = 41.0 + g0->usage_percent * 0.1;
+    g0->core_clock_mhz = 450.0 + g0->usage_percent * 2.0;
+
+    /* GPU 1: NVIDIA discrete */
+    GpuDevice *g1 = &stats->gpu.gpus[1];
+    g1->present = true;
+    strcpy(g1->brand, "NVIDIA");
+    strcpy(g1->model, "NVIDIA GeForce RTX 4060 Laptop GPU");
+    
+    /* Simulate periodic heavy load spikes (e.g. gaming bursts) */
+    double spike = sin(sim_time * 0.06);
+    if (spike > 0.4) {
+        g1->usage_percent = 65.0 + 20.0 * sin(sim_time * 0.5) + (rand() % 10);
+        g1->used_vram_gb = 4.2 + 0.8 * sin(sim_time * 0.2);
+    } else {
+        g1->usage_percent = 0.0 + (rand() % 2); /* idle */
+        g1->used_vram_gb = 0.4 + 0.1 * sin(sim_time * 0.02);
+    }
+    g1->total_vram_gb = 8.0;
+    g1->vram_percent = (g1->used_vram_gb / g1->total_vram_gb) * 100.0;
+    g1->temperature_c = 38.0 + g1->usage_percent * 0.3;
+    g1->core_clock_mhz = 1350.0 + g1->usage_percent * 4.0;
 
     /* Network simulation */
     stats->network.interface_count = 2;
@@ -422,64 +447,145 @@ static void read_memory_stats(MemoryStats *mem) {
 }
 
 static void read_gpu_stats(GpuStats *gpu) {
-    /* Look in DRM sysfs */
-    FILE *f_busy = fopen("/sys/class/drm/card0/device/gpu_busy_percent", "r");
-    FILE *f_vram_total = fopen("/sys/class/drm/card0/device/mem_info_vram_total", "r");
-    FILE *f_vram_used = fopen("/sys/class/drm/card0/device/mem_info_vram_used", "r");
+    int gpu_idx = 0;
+    
+    /* Clear the GPU struct */
+    memset(gpu, 0, sizeof(GpuStats));
 
-    if (f_busy && f_vram_total && f_vram_used) {
-        strcpy(gpu->model, "AMD Radeon GPU");
+    /* Look in DRM sysfs for up to 4 potential cards */
+    for (int card = 0; card < 4 && gpu_idx < MAX_GPUS; card++) {
+        char card_path[128];
+        snprintf(card_path, sizeof(card_path), "/sys/class/drm/card%d", card);
         
-        unsigned int busy = 0;
-        if (fscanf(f_busy, "%u", &busy) == 1) {
-            gpu->usage_percent = busy;
+        struct stat st;
+        if (stat(card_path, &st) != 0 || !S_ISDIR(st.st_mode)) {
+            continue;
         }
-        
-        unsigned long long vram_tot = 0;
-        if (fscanf(f_vram_total, "%llu", &vram_tot) == 1) {
-            gpu->total_vram_gb = vram_tot / 1024.0 / 1024.0 / 1024.0;
+
+        /* Check the vendor ID to determine GPU brand */
+        char vendor_path[256];
+        snprintf(vendor_path, sizeof(vendor_path), "%s/device/vendor", card_path);
+        FILE *fv = fopen(vendor_path, "r");
+        if (!fv) continue;
+        char vendor_id[32] = "";
+        if (fscanf(fv, "%31s", vendor_id) != 1) {
+            fclose(fv);
+            continue;
         }
+        fclose(fv);
         
-        unsigned long long vram_usd = 0;
-        if (fscanf(f_vram_used, "%llu", &vram_usd) == 1) {
-            gpu->used_vram_gb = vram_usd / 1024.0 / 1024.0 / 1024.0;
-        }
-        
-        if (gpu->total_vram_gb > 0) {
-            gpu->vram_percent = (gpu->used_vram_gb / gpu->total_vram_gb) * 100.0;
-        } else {
-            gpu->vram_percent = 0.0;
-        }
-        
-        fclose(f_busy);
-        fclose(f_vram_total);
-        fclose(f_vram_used);
-        
-        /* Try reading temperature */
-        FILE *f_temp = fopen("/sys/class/drm/card0/device/hwmon/hwmon1/temp1_input", "r");
-        if (!f_temp) f_temp = fopen("/sys/class/drm/card0/device/hwmon/hwmon2/temp1_input", "r");
-        if (!f_temp) f_temp = fopen("/sys/class/class/hwmon/hwmon0/temp1_input", "r"); // Fallback
-        if (f_temp) {
-            long temp_raw = 0;
-            if (fscanf(f_temp, "%ld", &temp_raw) == 1) {
-                gpu->temperature_c = temp_raw / 1000.0;
+        GpuDevice *g = &gpu->gpus[gpu_idx];
+        g->present = true;
+
+        if (strcmp(vendor_id, "0x1002") == 0) {
+            /* AMD Radeon GPU */
+            strcpy(g->brand, "AMD");
+            snprintf(g->model, sizeof(g->model), "AMD Radeon Graphics (card%d)", card);
+            
+            char path_busy[256], path_vram_tot[256], path_vram_usd[256];
+            snprintf(path_busy, sizeof(path_busy), "%s/device/gpu_busy_percent", card_path);
+            snprintf(path_vram_tot, sizeof(path_vram_tot), "%s/device/mem_info_vram_total", card_path);
+            snprintf(path_vram_usd, sizeof(path_vram_usd), "%s/device/mem_info_vram_used", card_path);
+
+            FILE *f = fopen(path_busy, "r");
+            if (f) {
+                unsigned int busy = 0;
+                if (fscanf(f, "%u", &busy) == 1) g->usage_percent = busy;
+                fclose(f);
             }
-            fclose(f_temp);
-        } else {
-            gpu->temperature_c = 40.0;
+
+            f = fopen(path_vram_tot, "r");
+            if (f) {
+                unsigned long long vtot = 0;
+                if (fscanf(f, "%llu", &vtot) == 1) g->total_vram_gb = vtot / (1024.0 * 1024.0 * 1024.0);
+                fclose(f);
+            }
+            
+            f = fopen(path_vram_usd, "r");
+            if (f) {
+                unsigned long long vusd = 0;
+                if (fscanf(f, "%llu", &vusd) == 1) g->used_vram_gb = vusd / (1024.0 * 1024.0 * 1024.0);
+                fclose(f);
+            }
+            
+            if (g->total_vram_gb > 0) {
+                g->vram_percent = (g->used_vram_gb / g->total_vram_gb) * 100.0;
+            }
+
+            /* Temp */
+            g->temperature_c = 40.0;
+            for (int hw = 0; hw < 4; hw++) {
+                char path_temp[256];
+                snprintf(path_temp, sizeof(path_temp), "%s/device/hwmon/hwmon%d/temp1_input", card_path, hw);
+                f = fopen(path_temp, "r");
+                if (f) {
+                    long t_raw = 0;
+                    if (fscanf(f, "%ld", &t_raw) == 1) g->temperature_c = t_raw / 1000.0;
+                    fclose(f);
+                    break;
+                }
+            }
+            g->core_clock_mhz = 1000.0;
+            gpu_idx++;
         }
-        gpu->core_clock_mhz = 1200.0; /* Hardcoded standard */
+        else if (strcmp(vendor_id, "0x8086") == 0) {
+            /* Intel Graphics (integrated) */
+            strcpy(g->brand, "Intel");
+            snprintf(g->model, sizeof(g->model), "Intel Iris Xe Graphics (card%d)", card);
+            g->usage_percent = 5.0; /* Minimal default */
+            g->total_vram_gb = 4.0; /* Simulated shared VRAM */
+            g->used_vram_gb = 0.5;
+            g->vram_percent = (g->used_vram_gb / g->total_vram_gb) * 100.0;
+            g->temperature_c = 38.0;
+            g->core_clock_mhz = 450.0;
+            gpu_idx++;
+        }
+        else if (strcmp(vendor_id, "0x10de") == 0) {
+            /* NVIDIA Graphics */
+            strcpy(g->brand, "NVIDIA");
+            snprintf(g->model, sizeof(g->model), "NVIDIA GeForce GPU (card%d)", card);
+            
+            g->usage_percent = 0.0;
+            g->total_vram_gb = 8.0;
+            g->used_vram_gb = 0.0;
+            g->vram_percent = 0.0;
+            g->temperature_c = 42.0;
+            g->core_clock_mhz = 1200.0;
+            
+            /* Execute nvidia-smi command to get actual metrics */
+            FILE *p = popen("nvidia-smi --query-gpu=utilization.gpu,temperature.gpu,utilization.memory,memory.total,memory.used --format=csv,noheader,nounits 2>/dev/null", "r");
+            if (p) {
+                unsigned int use = 0, temp = 0, vuse = 0;
+                double vtot = 0, vusd = 0;
+                if (fscanf(p, "%u, %u, %u, %lf, %lf", &use, &temp, &vuse, &vtot, &vusd) == 5) {
+                    g->usage_percent = use;
+                    g->temperature_c = temp;
+                    g->total_vram_gb = vtot / 1024.0; /* MB to GB */
+                    g->used_vram_gb = vusd / 1024.0;
+                    g->vram_percent = (g->used_vram_gb / g->total_vram_gb) * 100.0;
+                }
+                pclose(p);
+            }
+            gpu_idx++;
+        }
+    }
+
+    /* Set GPU count */
+    if (gpu_idx > 0) {
+        gpu->gpu_count = gpu_idx;
     } else {
-        /* Fallback Simulation for GPU */
-        static double gpu_sim = 0.0;
-        gpu_sim += 1.0;
-        strcpy(gpu->model, "Intel Graphics / Fallback Device");
-        gpu->usage_percent = 5.0 + 3.0 * sin(gpu_sim * 0.1) + (rand() % 5);
-        gpu->total_vram_gb = 4.0;
-        gpu->used_vram_gb = 0.8 + 0.1 * sin(gpu_sim * 0.02);
-        gpu->vram_percent = (gpu->used_vram_gb / gpu->total_vram_gb) * 100.0;
-        gpu->temperature_c = 40.0 + (gpu->usage_percent * 0.2);
-        gpu->core_clock_mhz = 600.0 + (gpu->usage_percent * 4.0);
+        /* Fallback simulation/default if no hardware GPUs detected */
+        gpu->gpu_count = 1;
+        GpuDevice *g = &gpu->gpus[0];
+        g->present = true;
+        strcpy(g->brand, "Intel");
+        strcpy(g->model, "Intel HD Graphics (Fallback)");
+        g->usage_percent = 5.0;
+        g->total_vram_gb = 4.0;
+        g->used_vram_gb = 0.6;
+        g->vram_percent = (g->used_vram_gb / g->total_vram_gb) * 100.0;
+        g->temperature_c = 40.0;
+        g->core_clock_mhz = 600.0;
     }
 }
 
