@@ -9,16 +9,16 @@ window.main-window {
 
 /* Header bar styling */
 headerbar {
-    background: rgba(0, 0, 0, 0.2);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    background: rgba(0, 0, 0, 0);
+    border-bottom: 1px solid rgba(0, 0, 0, 0);
     border-radius: 14px 14px 0 0;
     padding: 6px;
 }
 
 /* Sidebar navigation */
 .sidebar {
-    background: rgba(0, 0, 0, 0.2);
-    border-right: 1px solid rgba(255, 255, 255, 0.05);
+    background: rgba(0, 0, 0, 0);
+    border-right: 1px solid rgba(255, 255, 255, 0);
     padding: 14px;
     margin: 0;
 }
