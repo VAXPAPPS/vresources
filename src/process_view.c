@@ -567,14 +567,36 @@ void update_process_view(gpointer ui_context) {
     /* Poll fresh process metrics */
     process_reader_update(&state->list, demo_mode);
 
-    /* Clean old items in model */
-    gtk_list_store_clear(state->store);
-
     bool show_all = gtk_switch_get_active(GTK_SWITCH(state->switch_all));
     uid_t my_uid = getuid();
 
-    /* Populate with updated list */
+    /* 1. Remove rows for processes that are no longer active or don't match the user filter */
     GtkTreeIter iter;
+    gboolean valid = gtk_tree_model_get_iter_first(GTK_TREE_MODEL(state->store), &iter);
+    while (valid) {
+        int row_pid;
+        gtk_tree_model_get(GTK_TREE_MODEL(state->store), &iter, COL_PID, &row_pid, -1);
+        
+        gboolean still_active = FALSE;
+        for (int i = 0; i < state->list.process_count; i++) {
+            ProcessInfo *p = &state->list.processes[i];
+            if (!show_all && p->uid != (int)my_uid) {
+                continue;
+            }
+            if (p->pid == row_pid) {
+                still_active = TRUE;
+                break;
+            }
+        }
+        
+        if (!still_active) {
+            valid = gtk_list_store_remove(state->store, &iter);
+        } else {
+            valid = gtk_tree_model_iter_next(GTK_TREE_MODEL(state->store), &iter);
+        }
+    }
+
+    /* 2. Update existing rows or append new ones */
     for (int i = 0; i < state->list.process_count; i++) {
         ProcessInfo *p = &state->list.processes[i];
         
@@ -582,16 +604,41 @@ void update_process_view(gpointer ui_context) {
             continue;
         }
 
-        gtk_list_store_append(state->store, &iter);
-        gtk_list_store_set(state->store, &iter,
-                           COL_NAME, p->name,
-                           COL_ICON_NAME, get_process_icon_name(p->name),
-                           COL_PID, p->pid,
-                           COL_CPU, p->cpu_percent,
-                           COL_RAM, p->ram_mb,
-                           COL_REAL_MEM, p->real_mem_mb,
-                           COL_GPU, p->gpu_percent,
-                           COL_CACHE, p->cache_mb,
-                           -1);
+        gboolean found = FALSE;
+        if (gtk_tree_model_get_iter_first(GTK_TREE_MODEL(state->store), &iter)) {
+            do {
+                int row_pid;
+                gtk_tree_model_get(GTK_TREE_MODEL(state->store), &iter, COL_PID, &row_pid, -1);
+                if (row_pid == p->pid) {
+                    found = TRUE;
+                    break;
+                }
+            } while (gtk_tree_model_iter_next(GTK_TREE_MODEL(state->store), &iter));
+        }
+
+        if (found) {
+            gtk_list_store_set(state->store, &iter,
+                               COL_NAME, p->name,
+                               COL_ICON_NAME, get_process_icon_name(p->name),
+                               COL_CPU, p->cpu_percent,
+                               COL_RAM, p->ram_mb,
+                               COL_REAL_MEM, p->real_mem_mb,
+                               COL_GPU, p->gpu_percent,
+                               COL_CACHE, p->cache_mb,
+                               -1);
+        } else {
+            GtkTreeIter new_iter;
+            gtk_list_store_append(state->store, &new_iter);
+            gtk_list_store_set(state->store, &new_iter,
+                               COL_NAME, p->name,
+                               COL_ICON_NAME, get_process_icon_name(p->name),
+                               COL_PID, p->pid,
+                               COL_CPU, p->cpu_percent,
+                               COL_RAM, p->ram_mb,
+                               COL_REAL_MEM, p->real_mem_mb,
+                               COL_GPU, p->gpu_percent,
+                               COL_CACHE, p->cache_mb,
+                               -1);
+        }
     }
 }
