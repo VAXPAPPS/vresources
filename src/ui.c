@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <unistd.h>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -231,7 +232,14 @@ static void on_demo_switch_changed(GtkSwitch *widget, gboolean state, gpointer u
 GtkWidget *create_main_ui(GtkApplication *app, UIContext *ctx) {
     /* Set up styling */
     GtkCssProvider *css_provider = gtk_css_provider_new();
-    gtk_css_provider_load_from_path(css_provider, "style.css");
+    const char *css_path = "style.css";
+    if (access(css_path, F_OK) != 0) {
+        css_path = "/usr/share/vresources/style.css";
+        if (access(css_path, F_OK) != 0) {
+            css_path = "/usr/local/share/vresources/style.css";
+        }
+    }
+    gtk_css_provider_load_from_path(css_provider, css_path);
     gtk_style_context_add_provider_for_display(gdk_display_get_default(),
                                                GTK_STYLE_PROVIDER(css_provider),
                                                GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
