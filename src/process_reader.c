@@ -8,6 +8,8 @@
 #include <time.h>
 #include <ctype.h>
 #include <math.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 
 #define CACHE_SIZE 2048
 
@@ -125,6 +127,18 @@ static void generate_simulated_processes(ProcessList *list) {
             p->gpu_percent = 0.0;
         }
 
+        if (strcmp(defs[i].name, "vresources") == 0 ||
+            strcmp(defs[i].name, "vbrowser-engine") == 0 ||
+            strcmp(defs[i].name, "vbrowser-tab1") == 0 ||
+            strcmp(defs[i].name, "vbrowser-tab2") == 0 ||
+            strcmp(defs[i].name, "bash-shell") == 0 ||
+            strcmp(defs[i].name, "vsettings-app") == 0 ||
+            strcmp(defs[i].name, "git-lfs-sync") == 0) {
+            p->uid = getuid();
+        } else {
+            p->uid = 0;
+        }
+
         list->process_count++;
     }
 
@@ -189,6 +203,14 @@ void process_reader_update(ProcessList *list, bool demo_mode) {
         if (pid <= 0) continue;
 
         char path[256];
+        struct stat st;
+        int p_uid = 0;
+        snprintf(path, sizeof(path), "/proc/%d", pid);
+        if (stat(path, &st) == 0) {
+            p_uid = st.st_uid;
+        } else {
+            continue;
+        }
         
         /* 1. Read process name and CPU ticks from /proc/PID/stat */
         snprintf(path, sizeof(path), "/proc/%d/stat", pid);
@@ -280,6 +302,7 @@ void process_reader_update(ProcessList *list, bool demo_mode) {
         /* Populate results */
         ProcessInfo *p = &list->processes[count];
         p->pid = pid;
+        p->uid = p_uid;
         
         /* Read full command path as fallback if name is too brief */
         snprintf(path, sizeof(path), "/proc/%d/cmdline", pid);

@@ -3,6 +3,8 @@
 #include "process_actions.h"
 #include <string.h>
 #include <signal.h>
+#include <unistd.h>
+#include <sys/types.h>
 
 enum {
     COL_NAME = 0,
@@ -22,6 +24,7 @@ typedef struct {
     GtkTreeModel *filter_model;
     ProcessList list;
     GtkWindow *parent_window;
+    GtkWidget *switch_all;
 } ProcessViewState;
 
 /* Case-insensitive search filter function */
@@ -303,6 +306,11 @@ static void on_treeview_right_click(GtkGestureClick *gesture, int n_press, doubl
     }
 }
 
+static void on_switch_all_notify(GObject *gobject, GParamSpec *pspec, gpointer user_data) {
+    (void)gobject; (void)pspec;
+    update_process_view(user_data);
+}
+
 GtkWidget *create_process_view(GtkWidget *parent, gpointer ui_context) {
     UIContext *ctx = (UIContext *)ui_context;
 
@@ -332,6 +340,16 @@ GtkWidget *create_process_view(GtkWidget *parent, gpointer ui_context) {
     state->search_entry = gtk_search_entry_new();
     gtk_widget_set_hexpand(state->search_entry, TRUE);
     gtk_box_append(GTK_BOX(search_box), state->search_entry);
+
+    GtkWidget *lbl_all = gtk_label_new("All Users:");
+    gtk_widget_add_css_class(lbl_all, "info-list-label");
+    gtk_widget_set_margin_start(lbl_all, 12);
+    gtk_box_append(GTK_BOX(search_box), lbl_all);
+
+    state->switch_all = gtk_switch_new();
+    gtk_switch_set_active(GTK_SWITCH(state->switch_all), TRUE);
+    g_signal_connect(state->switch_all, "notify::active", G_CALLBACK(on_switch_all_notify), ui_context);
+    gtk_box_append(GTK_BOX(search_box), state->switch_all);
 
     /* Create the base GtkListStore */
     state->store = gtk_list_store_new(NUM_COLS, 
@@ -470,10 +488,18 @@ void update_process_view(gpointer ui_context) {
     /* Clean old items in model */
     gtk_list_store_clear(state->store);
 
+    bool show_all = gtk_switch_get_active(GTK_SWITCH(state->switch_all));
+    uid_t my_uid = getuid();
+
     /* Populate with updated list */
     GtkTreeIter iter;
     for (int i = 0; i < state->list.process_count; i++) {
         ProcessInfo *p = &state->list.processes[i];
+        
+        if (!show_all && p->uid != (int)my_uid) {
+            continue;
+        }
+
         gtk_list_store_append(state->store, &iter);
         gtk_list_store_set(state->store, &iter,
                            COL_NAME, p->name,

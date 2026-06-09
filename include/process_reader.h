@@ -13,6 +13,7 @@ typedef struct {
     double real_mem_mb;
     double gpu_percent;
     double cache_mb;
+    int uid;
 } ProcessInfo;
 
 typedef struct {
