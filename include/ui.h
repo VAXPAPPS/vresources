@@ -116,5 +116,6 @@ typedef struct {
 GtkWidget *create_main_ui(GtkApplication *app, UIContext *ctx);
 void update_ui(UIContext *ctx);
 void ui_animate_tick(UIContext *ctx);
+void ui_set_telemetry_interval(UIContext *ctx, int interval_ms);
 
 #endif /* UI_H */

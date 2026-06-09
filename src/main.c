@@ -9,6 +9,15 @@ static gboolean on_telemetry_tick(gpointer user_data) {
     return G_SOURCE_CONTINUE;
 }
 
+void ui_set_telemetry_interval(UIContext *ctx, int interval_ms) {
+    if (!ctx) return;
+    if (ctx->telemetry_timer_id > 0) {
+        g_source_remove(ctx->telemetry_timer_id);
+    }
+    if (interval_ms < 50) interval_ms = 50;
+    ctx->telemetry_timer_id = g_timeout_add(interval_ms, (GSourceFunc)on_telemetry_tick, ctx);
+}
+
 static gboolean on_animation_tick(gpointer user_data) {
     UIContext *ctx = (UIContext *)user_data;
     ui_animate_tick(ctx);

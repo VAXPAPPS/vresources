@@ -182,3 +182,22 @@ popover.context-menu-popover > contents {
     background: rgba(0, 242, 254, 0.15);
     color: #33f5ff;
 }
+
+/* Custom styling for search bar widgets */
+.search-switch {
+    margin-left: 4px;
+    margin-right: 8px;
+}
+
+.search-combo {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    color: #ffffff;
+    padding: 0 4px;
+}
+
+.search-combo:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(0, 242, 254, 0.3);
+}

@@ -380,6 +380,22 @@ static void on_switch_all_notify(GObject *gobject, GParamSpec *pspec, gpointer u
     update_process_view(user_data);
 }
 
+static void on_refresh_combo_changed(GtkComboBox *combo, gpointer user_data) {
+    UIContext *ctx = (UIContext *)user_data;
+    int active_idx = gtk_combo_box_get_active(combo);
+    int interval_ms = 1000;
+    
+    if (active_idx == 0) {
+        interval_ms = 100; /* 0 (Live) */
+    } else if (active_idx == 1) {
+        interval_ms = 500; /* 0.5s */
+    } else if (active_idx == 2) {
+        interval_ms = 1000; /* 1s */
+    }
+    
+    ui_set_telemetry_interval(ctx, interval_ms);
+}
+
 GtkWidget *create_process_view(GtkWidget *parent, gpointer ui_context) {
     UIContext *ctx = (UIContext *)ui_context;
 
@@ -413,12 +429,32 @@ GtkWidget *create_process_view(GtkWidget *parent, gpointer ui_context) {
     GtkWidget *lbl_all = gtk_label_new("All Users:");
     gtk_widget_add_css_class(lbl_all, "info-list-label");
     gtk_widget_set_margin_start(lbl_all, 12);
+    gtk_widget_set_valign(lbl_all, GTK_ALIGN_CENTER);
     gtk_box_append(GTK_BOX(search_box), lbl_all);
 
     state->switch_all = gtk_switch_new();
+    gtk_widget_add_css_class(state->switch_all, "search-switch");
+    gtk_widget_set_valign(state->switch_all, GTK_ALIGN_CENTER);
     gtk_switch_set_active(GTK_SWITCH(state->switch_all), FALSE);
     g_signal_connect(state->switch_all, "notify::active", G_CALLBACK(on_switch_all_notify), ui_context);
     gtk_box_append(GTK_BOX(search_box), state->switch_all);
+
+    GtkWidget *lbl_refresh = gtk_label_new("Refresh:");
+    gtk_widget_add_css_class(lbl_refresh, "info-list-label");
+    gtk_widget_set_margin_start(lbl_refresh, 12);
+    gtk_widget_set_valign(lbl_refresh, GTK_ALIGN_CENTER);
+    gtk_box_append(GTK_BOX(search_box), lbl_refresh);
+
+    GtkWidget *combo_refresh = gtk_combo_box_text_new();
+    gtk_widget_add_css_class(combo_refresh, "search-combo");
+    gtk_widget_set_valign(combo_refresh, GTK_ALIGN_CENTER);
+    gtk_widget_set_size_request(combo_refresh, 100, -1);
+    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(combo_refresh), "0 (Live)");
+    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(combo_refresh), "0.5s");
+    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(combo_refresh), "1.0s");
+    gtk_combo_box_set_active(GTK_COMBO_BOX(combo_refresh), 2); /* Default to 1.0s */
+    g_signal_connect(combo_refresh, "changed", G_CALLBACK(on_refresh_combo_changed), ui_context);
+    gtk_box_append(GTK_BOX(search_box), combo_refresh);
 
     /* Create the base GtkListStore */
     state->store = gtk_list_store_new(NUM_COLS, 
