@@ -271,6 +271,10 @@ GtkWidget *create_main_ui(GtkApplication *app, UIContext *ctx) {
     gtk_window_set_default_size(GTK_WINDOW(win), 1020, 680);
     gtk_widget_add_css_class(win, "main-window");
 
+    /* Create a header bar (Client-Side Decoration titlebar) */
+    GtkWidget *header = gtk_header_bar_new();
+    gtk_window_set_titlebar(GTK_WINDOW(win), header);
+
     /* Main box layout */
     GtkWidget *main_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
     gtk_window_set_child(GTK_WINDOW(win), main_box);
