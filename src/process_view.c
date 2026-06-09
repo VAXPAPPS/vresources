@@ -5,9 +5,11 @@
 #include <signal.h>
 #include <unistd.h>
 #include <sys/types.h>
+#include <ctype.h>
 
 enum {
     COL_NAME = 0,
+    COL_ICON_NAME,
     COL_PID,
     COL_CPU,
     COL_RAM,
@@ -16,6 +18,73 @@ enum {
     COL_CACHE,
     NUM_COLS
 };
+
+static const char *get_process_icon_name(const char *proc_name) {
+    if (!proc_name) return NULL;
+
+    /* Lowercase lookup to match easily */
+    char lower[256];
+    int i = 0;
+    for (i = 0; proc_name[i] && i < 255; i++) {
+        lower[i] = tolower((unsigned char)proc_name[i]);
+    }
+    lower[i] = '\0';
+
+    /* Custom mappings for common applications/services */
+    if (strstr(lower, "bash") || strstr(lower, "sh") || strstr(lower, "zsh") || strstr(lower, "terminal")) {
+        return "utilities-terminal";
+    }
+    if (strstr(lower, "firefox")) {
+        return "firefox";
+    }
+    if (strstr(lower, "chrome") || strstr(lower, "chromium")) {
+        return "google-chrome";
+    }
+    if (strstr(lower, "vbrowser")) {
+        return "web-browser";
+    }
+    if (strstr(lower, "vresources") || strstr(lower, "system-monitor") || strstr(lower, "top")) {
+        return "utilities-system-monitor";
+    }
+    if (strstr(lower, "pulseaudio") || strstr(lower, "pipewire")) {
+        return "audio-card";
+    }
+    if (strstr(lower, "xorg") || strstr(lower, "wayland") || strstr(lower, "gnome-shell") || strstr(lower, "mutter")) {
+        return "video-display";
+    }
+    if (strstr(lower, "settings") || strstr(lower, "control-center")) {
+        return "preferences-system";
+    }
+    if (strstr(lower, "dbus") || strstr(lower, "systemd")) {
+        return "system-run";
+    }
+    if (strstr(lower, "git")) {
+        return "git";
+    }
+    if (strstr(lower, "python")) {
+        return "python";
+    }
+
+    /* Check if the icon theme has an icon matching the exact process name */
+    GdkDisplay *display = gdk_display_get_default();
+    if (display) {
+        GtkIconTheme *theme = gtk_icon_theme_get_for_display(display);
+        if (theme && gtk_icon_theme_has_icon(theme, lower)) {
+            static char matched_icon[256];
+            strncpy(matched_icon, lower, sizeof(matched_icon) - 1);
+            matched_icon[sizeof(matched_icon) - 1] = '\0';
+            return matched_icon;
+        }
+        if (theme && gtk_icon_theme_has_icon(theme, proc_name)) {
+            static char matched_icon_orig[256];
+            strncpy(matched_icon_orig, proc_name, sizeof(matched_icon_orig) - 1);
+            matched_icon_orig[sizeof(matched_icon_orig) - 1] = '\0';
+            return matched_icon_orig;
+        }
+    }
+
+    return NULL;
+}
 
 typedef struct {
     GtkListStore *store;
@@ -347,13 +416,14 @@ GtkWidget *create_process_view(GtkWidget *parent, gpointer ui_context) {
     gtk_box_append(GTK_BOX(search_box), lbl_all);
 
     state->switch_all = gtk_switch_new();
-    gtk_switch_set_active(GTK_SWITCH(state->switch_all), TRUE);
+    gtk_switch_set_active(GTK_SWITCH(state->switch_all), FALSE);
     g_signal_connect(state->switch_all, "notify::active", G_CALLBACK(on_switch_all_notify), ui_context);
     gtk_box_append(GTK_BOX(search_box), state->switch_all);
 
     /* Create the base GtkListStore */
     state->store = gtk_list_store_new(NUM_COLS, 
                                       G_TYPE_STRING,   /* Name */
+                                      G_TYPE_STRING,   /* Icon Name */
                                       G_TYPE_INT,      /* PID */
                                       G_TYPE_DOUBLE,   /* CPU */
                                       G_TYPE_DOUBLE,   /* RAM */
@@ -384,16 +454,28 @@ GtkWidget *create_process_view(GtkWidget *parent, gpointer ui_context) {
     GtkTreeViewColumn *column;
 
     /* 1. Name Column */
+    column = gtk_tree_view_column_new();
+    gtk_tree_view_column_set_title(column, "Application / Service");
+    gtk_tree_view_column_set_resizable(column, TRUE);
+    gtk_tree_view_column_set_min_width(column, 200);
+    gtk_tree_view_column_set_sort_column_id(column, COL_NAME);
+
+    /* Icon Renderer */
+    GtkCellRenderer *icon_renderer = gtk_cell_renderer_pixbuf_new();
+    g_object_set(icon_renderer, "xpad", 4, NULL);
+    gtk_tree_view_column_pack_start(column, icon_renderer, FALSE);
+    gtk_tree_view_column_add_attribute(column, icon_renderer, "icon-name", COL_ICON_NAME);
+
+    /* Text Renderer */
     renderer = gtk_cell_renderer_text_new();
     g_object_set(renderer,
                  "ellipsize", 3, /* PANGO_ELLIPSIZE_END is 3. Using number to avoid any header dependency issues */
                  "width-chars", 20,
                  "max-width-chars", 20,
                  NULL);
-    column = gtk_tree_view_column_new_with_attributes("Application / Service", renderer, "text", COL_NAME, NULL);
-    gtk_tree_view_column_set_resizable(column, TRUE);
-    gtk_tree_view_column_set_min_width(column, 160);
-    gtk_tree_view_column_set_sort_column_id(column, COL_NAME);
+    gtk_tree_view_column_pack_start(column, renderer, TRUE);
+    gtk_tree_view_column_add_attribute(column, renderer, "text", COL_NAME);
+
     gtk_tree_view_append_column(GTK_TREE_VIEW(state->tree_view), column);
 
     /* 2. PID Column */
@@ -503,6 +585,7 @@ void update_process_view(gpointer ui_context) {
         gtk_list_store_append(state->store, &iter);
         gtk_list_store_set(state->store, &iter,
                            COL_NAME, p->name,
+                           COL_ICON_NAME, get_process_icon_name(p->name),
                            COL_PID, p->pid,
                            COL_CPU, p->cpu_percent,
                            COL_RAM, p->ram_mb,
