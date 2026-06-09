@@ -1,6 +1,7 @@
 #include <gtk/gtk.h>
 #include "ui.h"
 #include "system_reader.h"
+#include "theme_manager.h"
 
 static gboolean on_telemetry_tick(gpointer user_data) {
     UIContext *ctx = (UIContext *)user_data;
@@ -69,6 +70,9 @@ static void activate(GtkApplication *app, gpointer user_data) {
     
     /* Initialize Linux procfs/sysfs parser */
     system_reader_init();
+
+    /* Initialize theme manager */
+    theme_manager_init();
     
     /* Construct main layouts and bindings */
     GtkWidget *win = create_main_ui(app, ctx);

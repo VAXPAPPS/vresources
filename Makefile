@@ -7,7 +7,7 @@ SRC_DIR = src
 INC_DIR = include
 BUILD_DIR = build
 
-SRCS = $(addprefix $(SRC_DIR)/, main.c system_reader.c charts.c ui.c process_reader.c process_view.c process_actions.c)
+SRCS = $(addprefix $(SRC_DIR)/, main.c system_reader.c charts.c ui.c process_reader.c process_view.c process_actions.c theme_manager.c)
 OBJS = $(patsubst $(SRC_DIR)/%.c, $(BUILD_DIR)/%.o, $(SRCS))
 
 all: $(BUILD_DIR) $(TARGET)
