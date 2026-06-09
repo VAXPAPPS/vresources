@@ -61,6 +61,6 @@ chmod 644 "${PKG_DIR}/usr/share/applications/${PKG_NAME}.desktop"
 chmod 644 "${PKG_DIR}/usr/share/icons/hicolor/scalable/apps/${PKG_NAME}.svg"
 
 echo "Building debian package..."
-dpkg-deb --build "${PKG_DIR}"
+dpkg-deb --build "${PKG_DIR}" "${PKG_NAME}_${PKG_VERSION}_${PKG_ARCH}.deb"
 
-echo "Debian package created successfully: build/${PKG_NAME}_${PKG_VERSION}_${PKG_ARCH}.deb"
+echo "Debian package created successfully: ${PKG_NAME}_${PKG_VERSION}_${PKG_ARCH}.deb"
