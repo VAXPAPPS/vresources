@@ -416,7 +416,9 @@ GtkWidget *create_process_view(GtkWidget *parent, gpointer ui_context) {
 
     /* Search Bar Box Setup */
     GtkWidget *search_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-    gtk_box_append(GTK_BOX(vbox), search_box);
+    ctx->process_controls_box = search_box;
+    gtk_widget_set_visible(search_box, FALSE); /* initially hidden, shown only when App Resources tab is active */
+    gtk_header_bar_pack_end(GTK_HEADER_BAR(ctx->headerbar), search_box);
 
     GtkWidget *lbl_search = gtk_label_new("Search Processes:");
     gtk_widget_add_css_class(lbl_search, "info-list-label");

@@ -111,6 +111,13 @@ typedef struct {
     /* Process view context pointer */
     gpointer process_view_context;
     
+    /* Header bar and controls box */
+    GtkWidget *headerbar;
+    GtkWidget *process_controls_box;
+    
+    /* Main window pointer */
+    GtkWidget *main_window;
+    
 } UIContext;
 
 GtkWidget *create_main_ui(GtkApplication *app, UIContext *ctx);

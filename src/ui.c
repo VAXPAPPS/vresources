@@ -194,10 +194,28 @@ static void draw_liquid_battery_cb(GtkDrawingArea *area, cairo_t *cr, int width,
 
 /* Sidebar Tab toggle callback */
 static void on_tab_toggled(GtkToggleButton *button, gpointer user_data) {
-    GtkStack *stack = GTK_STACK(user_data);
+    UIContext *ctx = (UIContext *)user_data;
     if (gtk_toggle_button_get_active(button)) {
         const char *page_name = g_object_get_data(G_OBJECT(button), "page-name");
-        gtk_stack_set_visible_child_name(stack, page_name);
+        gtk_stack_set_visible_child_name(GTK_STACK(ctx->stack), page_name);
+        
+        /* Show/hide header controls depending on active page */
+        if (ctx->process_controls_box) {
+            if (strcmp(page_name, "processes") == 0) {
+                gtk_widget_set_visible(ctx->process_controls_box, TRUE);
+            } else {
+                gtk_widget_set_visible(ctx->process_controls_box, FALSE);
+            }
+        }
+        
+        /* Clear or restore window title in header bar */
+        if (ctx->main_window) {
+            if (strcmp(page_name, "processes") == 0) {
+                gtk_window_set_title(GTK_WINDOW(ctx->main_window), "");
+            } else {
+                gtk_window_set_title(GTK_WINDOW(ctx->main_window), "VResources Monitor");
+            }
+        }
     }
 }
 
@@ -267,6 +285,7 @@ GtkWidget *create_main_ui(GtkApplication *app, UIContext *ctx) {
 
     /* Construct Main Window */
     GtkWidget *win = gtk_application_window_new(app);
+    ctx->main_window = win;
     gtk_window_set_title(GTK_WINDOW(win), "VResources Monitor");
     gtk_window_set_default_size(GTK_WINDOW(win), 1020, 680);
     gtk_widget_add_css_class(win, "main-window");
@@ -274,6 +293,7 @@ GtkWidget *create_main_ui(GtkApplication *app, UIContext *ctx) {
     /* Create a header bar (Client-Side Decoration titlebar) */
     GtkWidget *header = gtk_header_bar_new();
     gtk_window_set_titlebar(GTK_WINDOW(win), header);
+    ctx->headerbar = header;
 
     /* Main box layout */
     GtkWidget *main_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
@@ -325,7 +345,7 @@ GtkWidget *create_main_ui(GtkApplication *app, UIContext *ctx) {
             gtk_toggle_button_set_group(GTK_TOGGLE_BUTTON(btn), GTK_TOGGLE_BUTTON(first_btn));
         }
         
-        g_signal_connect(btn, "toggled", G_CALLBACK(on_tab_toggled), ctx->stack);
+        g_signal_connect(btn, "toggled", G_CALLBACK(on_tab_toggled), ctx);
         gtk_box_append(GTK_BOX(sidebar), btn);
     }
 
